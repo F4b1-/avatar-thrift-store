@@ -36,4 +36,16 @@ add_executable(AvatarThriftStore
 target_include_directories(AvatarThriftStore PRIVATE ../third_party)
 target_compile_features(AvatarThriftStore PRIVATE cxx_std_17)
 target_compile_options(AvatarThriftStore PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-O2 -Wall -Wextra>)
-xsdk_add_xex(AvatarThriftStore)
+
+# Packed into AvatarThriftStore.xex as xsdk_add_xex (xsdk/cmake/xsdk.cmake)
+# does, but with the app's own title id: xsdk's default, 5853444B ("XSDK"), is
+# shared by every xsdk title, and dashboards such as Aurora keep covers and
+# settings per title id. 41565453 is "AVTS"; not AAAAAAAA, the unlocked items' id.
+set(AVATAR_THRIFT_STORE_TITLE_ID 41565453)
+set_property(TARGET AvatarThriftStore APPEND PROPERTY LINK_DEPENDS
+    "${XSDK_ROOT}/build/libxsdk.a" "${XSDK_ROOT}/src/xsdk.ld")
+add_custom_command(TARGET AvatarThriftStore POST_BUILD
+    COMMAND sh -c "'${CMAKE_OBJDUMP}' -d '$<TARGET_FILE:AvatarThriftStore>' | python3 '${XSDK_ROOT}/tools/xenia_scan.py'"
+    COMMAND python3 "${XSDK_ROOT}/tools/elf2xex.py" --title-id ${AVATAR_THRIFT_STORE_TITLE_ID}
+            "$<TARGET_FILE:AvatarThriftStore>" "$<TARGET_FILE_DIR:AvatarThriftStore>/AvatarThriftStore.xex"
+    VERBATIM)

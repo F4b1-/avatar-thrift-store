@@ -1,6 +1,7 @@
 # build output
 /build/
 /out/
+/dist/
 *.obj
 *.pdb
 *.ilk

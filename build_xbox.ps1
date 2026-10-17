@@ -17,6 +17,9 @@ cd $Xsdk && make -s build/libxsdk.a
 cmake -S '$wslRoot/app' -B '$wslRoot/build/xbox' -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=`$(cd $Xsdk && pwd)/cmake/xsdk.cmake
 cmake --build '$wslRoot/build/xbox'
 "@
+# A checkout with Windows line endings (Git's default on Windows) would pass
+# carriage returns to bash, which then fails on the first line.
+$script = $script -replace "`r", ""
 
 & wsl.exe -d Debian --exec bash -c $script
 if ($LASTEXITCODE) { throw "xsdk build failed" }
