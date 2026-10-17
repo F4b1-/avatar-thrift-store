@@ -1,0 +1,24 @@
+# build output
+/build/
+/out/
+*.obj
+*.pdb
+*.ilk
+*.xdb
+*.pe
+*.exe
+*.xex
+
+# IDE
+/.vs/
+/.vscode/
+*.user
+
+# sample packages (copyrighted content, keep local)
+/samples/
+
+# personal profiles (gamertag, XUIDs, console id) and third-party tools,
+# some bundling other consoles' keyvaults (KV.bin): never commit
+/profiles/
+/reference/
+KV.bin

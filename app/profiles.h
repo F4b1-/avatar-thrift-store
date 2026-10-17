@@ -1,0 +1,31 @@
+// Profiles on the hard disk and USB storage, and activating an offline one:
+// the shared online XUID, Live-flagged as 360mpGui's maker does, rehashed and
+// signed with this console's own key.
+#pragma once
+
+#include "../core/profile.h"
+
+#include <string>
+#include <vector>
+
+struct ProfileEntry
+{
+    std::string drive;      // "HDD", "USB 1", ...
+    std::string path;       // ...\Content\<xuid>\FFFE07D1\00010000\<xuid>
+    ProfileInfo info;
+    bool signedIn;
+    std::string error;      // when the file can't be read as a profile
+};
+
+// Every profile on the hard disk and USB storage. A signed-in profile's file is
+// held open by the system; such a profile is still listed, with its gamertag
+// and online XUID as the system reports them.
+std::vector<ProfileEntry> ScanProfiles();
+
+// The online XUIDs the system reports for the users signed in now.
+std::vector<u64> SignedInOnlineXuids();
+
+// Activates an offline profile in place. A copy of the original goes to
+// game:\Backups first; nothing is written unless the console's signature
+// verifies. `backupPath` names the copy.
+bool ActivateProfile(const ProfileEntry& entry, std::string* backupPath, std::string* error);

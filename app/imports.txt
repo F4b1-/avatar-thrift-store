@@ -1,0 +1,7 @@
+# Kernel and XAM imports the app uses beyond xsdk's own (xsdk/imports/imports.txt), in the same format:
+# library, ordinal, export name. tools/gen_imports.py from xsdk turns each into a thunk; elf2xex merges them
+# with xsdk's by library. Ordinals from xenia:src/xenia/kernel/xboxkrnl/xboxkrnl_table.inc and
+# xenia:src/xenia/kernel/xam/xam_table.inc.
+
+xboxkrnl.exe  0x256  XeKeysConsolePrivateKeySign
+xam.xex       0x227  XamUserGetSigninInfo

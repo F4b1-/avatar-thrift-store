@@ -1,0 +1,359 @@
+#include "items.h"
+
+#include "profiles.h"
+#include "storage.h"
+#include "../core/account.h"
+#include "../core/avatar_item.h"
+#include "../core/stfs.h"
+#include "../core/stfs_package.h"
+
+#include "stb_image.h"
+
+#include <ctype.h>
+
+#include <algorithm>
+
+static const char* kItemsFolder = "game:\\AvatarItems";
+static const size_t kMaxReportedErrors = 3;
+
+const char* ItemsFolder()
+{
+    return kItemsFolder;
+}
+
+static std::string Join(const std::string& relative, const std::string& name)
+{
+    return relative.empty() ? name : relative + "\\" + name;
+}
+
+static std::string FullPath(const std::string& relative)
+{
+    return relative.empty() ? kItemsFolder : std::string(kItemsFolder) + "\\" + relative;
+}
+
+static std::string ContentFolder()
+{
+    return "Content\\0000000000000000\\" + AvatarItemContentSubfolder(kAvatarDefaultTitleId);
+}
+
+static std::string InstalledFolder()
+{
+    return HddDrive().root + "\\" + ContentFolder() + "\\";
+}
+
+// The online XUIDs an installed item is licensed to (none if it isn't installed).
+// Only the license entries are read.
+static std::vector<u64> InstalledLicensees(const std::string& path)
+{
+    std::vector<u64> xuids;
+    std::vector<u8> header;
+    const u32 bytes = kStfsOffsetLicenses + kStfsLicenseCount * 16;
+    if (!ReadFilePrefix(path, bytes, &header) || header.size() != bytes)
+        return xuids;
+    for (int i = 1; i < kStfsLicenseCount; i++)
+    {
+        u64 xuid = 0;
+        for (int b = 0; b < 8; b++)
+            xuid = xuid << 8 | header[kStfsOffsetLicenses + i * 16 + b];
+        if (IsOnlineXuid(xuid))
+            xuids.push_back(xuid);
+    }
+    return xuids;
+}
+
+static bool InstalledFor(const std::string& path, const std::vector<u64>& licensees)
+{
+    std::vector<u64> xuids = InstalledLicensees(path);
+    if (xuids.empty())
+        return false;
+    for (size_t i = 0; i < licensees.size(); i++)
+        if (std::find(xuids.begin(), xuids.end(), licensees[i]) == xuids.end())
+            return false;
+    return true;
+}
+
+static void AddUnique(std::vector<u64>* xuids, u64 xuid)
+{
+    if (IsOnlineXuid(xuid) && std::find(xuids->begin(), xuids->end(), xuid) == xuids->end())
+        xuids->push_back(xuid);
+}
+
+std::vector<u64> ItemLicensees()
+{
+    std::vector<u64> licensees(1, kSharedOnlineXuid);
+    std::vector<ProfileEntry> profiles = ScanProfiles();
+    for (size_t i = 0; i < profiles.size(); i++)
+        if (profiles[i].error.empty() && profiles[i].info.kind == kProfileLive)
+            AddUnique(&licensees, profiles[i].info.onlineXuid);
+    std::vector<u64> signedIn = SignedInOnlineXuids();
+    for (size_t i = 0; i < signedIn.size(); i++)
+        AddUnique(&licensees, signedIn[i]);
+    return licensees;
+}
+
+// Entry [1] gets the shared XUID, the rest go into free entries.
+static AvatarPatchOptions PatchOptions(const std::vector<u64>& licensees)
+{
+    AvatarPatchOptions options;
+    options.newTitleId = kAvatarDefaultTitleId;
+    options.setXuid = true;
+    options.xuid = kSharedOnlineXuid;
+    options.extraXuids = licensees;
+    return options;
+}
+
+std::string FolderName(const std::string& relative)
+{
+    size_t slash = relative.rfind('\\');
+    return slash == std::string::npos ? relative : relative.substr(slash + 1);
+}
+
+static std::string Lower(const std::string& text)
+{
+    std::string out(text);
+    for (size_t i = 0; i < out.size(); i++)
+        out[i] = (char)tolower((unsigned char)out[i]);
+    return out;
+}
+
+static bool LessIgnoringCase(const std::string& a, const std::string& b)
+{
+    return Lower(a) < Lower(b);
+}
+
+static bool ItemLess(const Item& a, const Item& b)
+{
+    std::string la = Lower(a.name);
+    std::string lb = Lower(b.name);
+    return la != lb ? la < lb : a.path < b.path;
+}
+
+static bool FolderPathLess(const std::string& a, const std::string& b)
+{
+    std::string na = Lower(FolderName(a));
+    std::string nb = Lower(FolderName(b));
+    return na != nb ? na < nb : Lower(a) < Lower(b);
+}
+
+// A PNG scaled to kIconSize (nearest pixel), as ARGB.
+static bool DecodeIcon(const u8* png, u32 bytes, std::vector<u32>* icon)
+{
+    int w = 0;
+    int h = 0;
+    int channels = 0;
+    unsigned char* rgba = stbi_load_from_memory(png, (int)bytes, &w, &h, &channels, 4);
+    if (!rgba)
+        return false;
+    icon->resize(kIconSize * kIconSize);
+    for (int y = 0; y < kIconSize; y++)
+        for (int x = 0; x < kIconSize; x++)
+        {
+            const unsigned char* p = rgba + ((y * h / kIconSize) * w + (x * w / kIconSize)) * 4;
+            (*icon)[y * kIconSize + x] = (u32)p[3] << 24 | (u32)p[0] << 16 | (u32)p[1] << 8 | p[2];
+        }
+    stbi_image_free(rgba);
+    return true;
+}
+
+static Item ReadItem(const std::string& relative, const std::string& fileName, const std::string& installedFolder,
+                     const std::vector<u64>& licensees)
+{
+    Item item;
+    item.path = Join(relative, fileName);
+    item.name = fileName;
+    item.installed = false;
+
+    // Items are small (tens of KB), and the preview, icon.png, is inside the package.
+    std::vector<u8> data;
+    if (!ReadWholeFile(FullPath(item.path), &data) || data.empty())
+    {
+        item.error = "cannot read the file";
+        return item;
+    }
+    if (!AvatarItemValidate(&data[0], (u32)data.size(), &item.error))
+        return item;
+
+    StfsHeader h;
+    StfsParseHeader(&data[0], (u32)data.size(), &h, NULL);
+    // Avatar items' display names start with a slash ("/Ducktales Logo Tee").
+    if (!h.displayName.empty())
+        item.name = h.displayName[0] == '/' ? h.displayName.substr(1) : h.displayName;
+
+    // icon.png is 128 x 128; the header's thumbnail is a 64 x 64 stand-in.
+    StfsPackage pkg;
+    std::vector<u8> png;
+    const StfsFileEntry* icon = NULL;
+    if (pkg.Open(&data[0], (u32)data.size(), NULL) && (icon = pkg.FindFile("icon.png")) != NULL &&
+        pkg.ReadFile(*icon, &png, NULL) && !png.empty())
+        DecodeIcon(&png[0], (u32)png.size(), &item.icon);
+    const u8* thumbnail = NULL;
+    u32 thumbnailBytes = 0;
+    if (item.icon.empty() && StfsThumbnail(&data[0], (u32)data.size(), &thumbnail, &thumbnailBytes))
+        DecodeIcon(thumbnail, thumbnailBytes, &item.icon);
+
+    item.installed = InstalledFor(installedFolder + AvatarItemPatchedFileName(&data[0], kAvatarDefaultTitleId), licensees);
+    return item;
+}
+
+ItemListing ScanItemFolder(const std::string& relative, const std::vector<u64>& licensees)
+{
+    ItemListing listing;
+    std::string full = FullPath(relative);
+    std::string installedFolder = InstalledFolder();
+
+    std::vector<std::string> files = ListFolder(full, false);
+    for (size_t i = 0; i < files.size(); i++)
+        listing.items.push_back(ReadItem(relative, files[i], installedFolder, licensees));
+    std::sort(listing.items.begin(), listing.items.end(), ItemLess);
+
+    listing.folders = ListFolder(full, true);
+    std::sort(listing.folders.begin(), listing.folders.end(), LessIgnoringCase);
+    return listing;
+}
+
+static void IndexFolders(const std::string& relative, std::vector<std::string>* index)
+{
+    std::vector<std::string> folders = ListFolder(FullPath(relative), true);
+    for (size_t i = 0; i < folders.size(); i++)
+    {
+        std::string path = Join(relative, folders[i]);
+        index->push_back(path);
+        IndexFolders(path, index);
+    }
+}
+
+std::vector<std::string> IndexItemFolders()
+{
+    std::vector<std::string> index;
+    IndexFolders("", &index);
+    return index;
+}
+
+std::vector<std::string> SearchFolders(const std::vector<std::string>& index, const std::string& query)
+{
+    std::vector<std::string> words;
+    std::string lowerQuery = Lower(query);
+    size_t start = 0;
+    while (start < lowerQuery.size())
+    {
+        size_t end = lowerQuery.find(' ', start);
+        if (end == std::string::npos)
+            end = lowerQuery.size();
+        if (end > start)
+            words.push_back(lowerQuery.substr(start, end - start));
+        start = end + 1;
+    }
+
+    std::vector<std::string> matches;
+    if (words.empty())
+        return matches;
+    for (size_t i = 0; i < index.size(); i++)
+    {
+        std::string name = Lower(FolderName(index[i]));
+        bool all = true;
+        for (size_t w = 0; w < words.size() && all; w++)
+            all = name.find(words[w]) != std::string::npos;
+        if (all)
+            matches.push_back(index[i]);
+    }
+    std::sort(matches.begin(), matches.end(), FolderPathLess);
+    return matches;
+}
+
+bool InstallItemFile(const std::string& path, bool removeSource, const std::vector<u64>& licensees, std::string* error)
+{
+    std::string source = FullPath(path);
+    std::vector<u8> data;
+    if (!ReadWholeFile(source, &data) || data.empty())
+    {
+        *error = "cannot read the file";
+        return false;
+    }
+    if (!AvatarItemValidate(&data[0], (u32)data.size(), error))
+        return false;
+
+    // XUIDs an installed copy already has (a profile that isn't around now) stay.
+    AvatarPatchOptions options = PatchOptions(licensees);
+    std::vector<u64> others = InstalledLicensees(InstalledFolder() + AvatarItemPatchedFileName(&data[0], kAvatarDefaultTitleId));
+    for (size_t i = 0; i < others.size(); i++)
+        AddUnique(&options.extraXuids, others[i]);
+    if (!AvatarItemPatch(&data[0], (u32)data.size(), options, error))
+        return false;
+
+    const Drive& hdd = HddDrive();
+    std::string target = hdd.root + "\\" + ContentFolder() + "\\" + AvatarItemFileName(&data[0]);
+    if (!MakeDirs(hdd.root, ContentFolder()) || !WriteWholeFile(target, &data[0], (u32)data.size()))
+    {
+        *error = "cannot write to the hard disk's Content folder";
+        return false;
+    }
+    if (removeSource && !DeleteFile(source))
+    {
+        *error = "installed, but the file could not be deleted";
+        return false;
+    }
+    return true;
+}
+
+static void AddFailure(InstallAllResult* result, const std::string& name, const std::string& error)
+{
+    result->failed++;
+    if (result->errors.size() < kMaxReportedErrors)
+        result->errors.push_back(name + ": " + error);
+}
+
+static void InstallAllIn(const std::string& relative, bool removeSource, const std::vector<u64>& licensees,
+                         InstallAllResult* result)
+{
+    std::string full = FullPath(relative);
+    std::vector<std::string> files = ListFolder(full, false);
+    for (size_t i = 0; i < files.size(); i++)
+    {
+        std::string error;
+        if (InstallItemFile(Join(relative, files[i]), removeSource, licensees, &error))
+            result->installed++;
+        else
+            AddFailure(result, files[i], error);
+    }
+    std::vector<std::string> folders = ListFolder(full, true);
+    for (size_t i = 0; i < folders.size(); i++)
+        InstallAllIn(Join(relative, folders[i]), removeSource, licensees, result);
+}
+
+InstallAllResult InstallAllItems(const std::string& relative, bool removeSource, const std::vector<u64>& licensees)
+{
+    InstallAllResult result;
+    result.installed = 0;
+    result.failed = 0;
+    InstallAllIn(relative, removeSource, licensees, &result);
+    return result;
+}
+
+InstallAllResult UpdateInstalledItems(const std::vector<u64>& licensees)
+{
+    InstallAllResult result;
+    result.installed = 0;
+    result.failed = 0;
+    std::string folder = InstalledFolder();
+    std::vector<std::string> files = ListFolder(folder, false);
+    for (size_t i = 0; i < files.size(); i++)
+    {
+        std::string path = folder + files[i];
+        if (InstalledFor(path, licensees))
+            continue;
+        std::vector<u8> data;
+        std::string error;
+        // Entry [1] stays as it is; what's missing goes into free entries.
+        AvatarPatchOptions options = PatchOptions(licensees);
+        options.setXuid = false;
+        if (!ReadWholeFile(path, &data) || data.empty())
+            AddFailure(&result, files[i], "cannot read the file");
+        else if (!AvatarItemPatch(&data[0], (u32)data.size(), options, &error))
+            AddFailure(&result, files[i], error);
+        else if (!WriteWholeFile(path, &data[0], (u32)data.size()))
+            AddFailure(&result, files[i], "cannot write the file");
+        else
+            result.installed++;
+    }
+    return result;
+}
