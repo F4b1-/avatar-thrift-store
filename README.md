@@ -1,98 +1,125 @@
 # Avatar Thrift Store
 
-Homebrew for modded Xbox 360 consoles (RGH/JTAG; softmods untested) that
-unlocks downloaded avatar items for every profile on the console and prepares
-offline profiles to use them, directly on the console. Built with
-[xsdk](https://github.com/xenosworks/xsdk), no Microsoft SDK needed.
+The Xbox 360 avatar marketplace is closed, but its items still work. Avatar
+Thrift Store is homebrew for modded Xbox 360 consoles that unlocks avatar item
+packages for every profile on the console, including **offline profiles**,
+which normally can't wear marketplace items at all. Everything happens on the
+console; no PC tools needed. Built with [xsdk](https://github.com/xenosworks/xsdk),
+no Microsoft SDK required.
 
-**Status:** unlocking items works on the console, for activated offline
-profiles and Xbox Live profiles (docs/STATUS.md). Activating an offline
-profile on the console itself (its signing step) is not confirmed yet.
+- **Add Items**: browse a folder of item packages (with previews and search)
+  and unlock them for every profile on the console.
+- **Activate Offline Profile** *(beta)*: lets an offline profile wear unlocked
+  items. Signed on the console with its own key, with a backup first.
+- **Avatar Editor** *(beta)*: jumps straight to the dashboard's avatar editor.
 
-## Using the app
+Runs on RGH/JTAG consoles; softmods are untested. No avatar items are
+included; bring your own.
 
-1. Copy `AvatarThriftStore.xex` to a folder on the console, e.g.
-   `Hdd1:\AvatarThriftStore\`, and put avatar item packages in an
-   `AvatarItems` folder next to it (`Hdd1:\AvatarThriftStore\AvatarItems\`).
-2. Launch the app from Aurora/FSD. To activate a profile, sign it out first:
-   a signed-in profile's file is held open by the system.
-3. **Activate Offline Profile** (once per offline profile): lists every
-   profile on the hard disk and USB storage. Activated and Xbox Live profiles
-   read "ready for items". An offline profile gets the shared online XUID and
-   is re-signed with this console's own key; a copy of the original goes to
-   `Backups\` next to the app first. Restart the console afterwards.
-4. **Add Items**: subfolders (any depth, e.g. one per pack) as a list, items
-   below them as tiles with their 128 x 128 previews, all sorted by name; a
-   tag says NEW or UNLOCKED, and the selected item's full name and state show
-   under the grid. A opens a folder, B goes back up. *Add Item* patches the
-   package and copies it to `Content\0000000000000000\AAAAAAAA\00009000\` on
-   the hard disk; *Add Item and Remove* also deletes it from `AvatarItems`.
-   The first row, *Add all items*, does the same for every file in the
-   current folder and its subfolders. An unlocked item works for every
-   activated profile and every Xbox Live profile on the console; items
-   unlocked before a Live profile turned up get it when Add Items opens.
-5. **Search** (Y): an on-screen keyboard searches the names of all folders
-   below `AvatarItems`, at any depth; every typed word must appear. Matches
-   show while typing; *Show results* (or START) lists them, A opens one and B
-   goes back to the results, then to where the search started.
+## Getting started
 
-Controls: D-pad or left stick, LB/RB a page, A choose, B back, Y search, BACK
-quit; on the keyboard X deletes and Y types a space. Items only show for an
-avatar of their gender.
+1. Download the zip from [Releases](../../releases) and copy the
+   `AvatarThriftStore` folder to the console, e.g. to `Hdd1:\`.
+2. Put avatar item packages into `AvatarThriftStore\AvatarItems` (subfolders
+   are fine, e.g. one per pack).
+3. Start `AvatarThriftStore.xex` from Aurora or FSD.
+4. Offline profiles: sign the profile out, then activate it under
+   **Activate Offline Profile**. Xbox Live profiles need nothing.
+5. **Add Items**, pick items (or *Add all items*), then **Avatar Editor** to
+   put them on.
 
-## How it works
+Controls: D-pad/left stick, A choose, B back, Y search, LB/RB page, BACK quit.
+Items only show for an avatar of their gender.
 
-Offline profiles get a shared online XUID (`00090000AAAAAAAA`) and are marked
-Live-enabled, the way 360mpGui's offline-to-online maker does it. Avatar items
-are licensed to that XUID and to each Xbox Live profile's own, so items
-patched once work for every such profile. The same steps on the PC:
+## Key findings
 
-```powershell
-.\build\pc\Release\avtool.exe set-xuid --live --out <new profile> <profile>
-.\build\pc\Release\avtool.exe patch --xuid 00090000AAAAAAAA --out <dir> <item> [...]
-.\build\pc\Release\avtool.exe verify-sig <profile>
-```
+### Avatar items
 
-`set-xuid` doesn't sign: resign its output (Horizon: save, rehash and
-resign) before copying it back to `Content\<offline xuid>\FFFE07D1\00010000\`.
+- An avatar item is a `LIVE` package. The avatar editor only shows items whose
+  license names the profile's **online XUID**, so offline profiles, which have
+  none, never see them.
+- Unlocking an item means: title id `AAAAAAAA` at `0x360` and in the last 4
+  bytes of the asset id (`0x3ED`), the XUID as licensee of license entry 1
+  (entries: 16 x licensee/bits/flags at `0x22C`), and the header SHA-1 at
+  `0x32C` recomputed. It goes to
+  `Content\0000000000000000\AAAAAAAA\00009000\<asset id>`.
+- The console accepts XUIDs in the other license entries (2-15) too, so **one
+  installed item can be unlocked for several profiles**.
+- The package's Microsoft signature no longer matches, which only modded
+  kernels tolerate.
 
-## Layout
+### Offline profiles
 
-| Path              | Contents                                                       |
-|-------------------|----------------------------------------------------------------|
-| `core/`           | Portable C++ (PC and console): STFS, Account, profiles, items, SHA-1, RSA check |
-| `app/`            | Console app (xsdk): UI, items, profiles, drives                |
-| `tools/avtool/`   | PC command-line tool for inspecting and processing packages    |
-| `tools/gen_font.ps1` | Renders the app's bitmap font (`app/font.h`)                |
-| `tests/`          | PC unit tests for `core`                                       |
-| `third_party/`    | `stb_image.h` v2.30 (public domain / MIT), for item thumbnails |
+- An online XUID alone doesn't make items show: the profile also needs the
+  Live flag. The Live flag alone makes the console reject the profile.
+- What works is this set of values in the profile's `Account` file (0x194
+  bytes, HMAC-SHA1/RC4-encrypted with the retail key):
+
+  | Offset | Field | Value |
+  |---|---|---|
+  | `0x00` | reserved flags | `0x20000001` (Live-enabled) |
+  | `0x28` | online XUID | `00090000AAAAAAAA` |
+  | `0x34` | service id | `PROD` |
+  | `0x3C` | online domain | `xbox.com` |
+  | `0x50` | Kerberos realm | `PASSPORT.NET` |
+  | `0x68` | key material | `0x81`, then zeros (all zeros: rejected) |
+
+- The online XUID needn't be a real account's: every activated profile can
+  share `00090000AAAAAAAA`, and items unlocked once work for all of them.
+
+### Profile signatures
+
+- Profiles are `CON` packages. The signature covers a SHA-1 of header bytes
+  `0x22C-0x344` (license entries, header hash, header size); because the
+  header hash covers everything below it, that hash stands for the whole
+  profile. RSA-1024, PKCS#1 v1.5.
+- The header holds 0x228 bytes at `0x004`: the signing console's certificate
+  (0x1A8 bytes, with its public key) and the signature (0x80 bytes,
+  byte-reversed).
+- The console checks that Microsoft signed the certificate and that the
+  signature matches it, not which console signed: profiles may move between
+  consoles. Any genuine console key is accepted, the console's own included.
+- The kernel signs with the console's own key on request:
+  `XeKeysConsolePrivateKeySign` (xboxkrnl ordinal `0x256`) takes the 20-byte
+  hash and returns the certificate and signature; the private key stays
+  inside.
+
+### The avatar editor
+
+- The dashboard's avatar editor opens through `XamLaunchAvatarEditor` (xam
+  ordinal `0x7DB`), not a separate program.
+- It takes three arguments, `(userIndex, 0, 0)`; with only the user index it
+  crashes. The system then closes the calling app and opens the editor for
+  that user.
+
+More details, formats and test results: [docs/STATUS.md](docs/STATUS.md).
 
 ## Building
 
-**PC** (VS 2026 with C++ tools; uses its bundled CMake):
-
-```powershell
-.\build_pc.ps1              # avtool + unit tests
-```
-
-**Xbox 360** (WSL Debian with xsdk in `~/src/xsdk` and its toolchain in
+**Console app** (WSL Debian with xsdk in `~/src/xsdk` and its toolchain in
 `~/xsdk-gcc`, plus CMake, Ninja and Python 3):
 
 ```powershell
-.\build_xbox.ps1            # -> build\xbox\AvatarThriftStore.xex
+.\build_xbox.ps1                              # -> build\xbox\AvatarThriftStore.xex
+.\tools\package_release.ps1 -Version 0.1.0    # -> dist\AvatarThriftStore-v0.1.0.zip
 ```
 
-Copy the `.xex` to the console via FTP and launch it from Aurora/FSD. The app
-writes a log next to itself (`AvatarThriftStore.log`).
+The title id is `41565453` ("AVTS"), so Aurora keeps the app's cover and
+settings apart from other xsdk titles. The app writes a log next to itself
+(`AvatarThriftStore.log`).
+
+**PC tools** (Visual Studio with C++; uses its bundled CMake):
+
+```powershell
+.\build_pc.ps1    # avtool + unit tests
+```
+
+`avtool` does the same steps on a PC (`info`, `patch`, `set-xuid`,
+`verify-sig`, ...); `set-xuid` doesn't sign, so resign its output with another
+tool.
 
 ## License
 
-MIT (`LICENSE`). Third-party code and the font: `THIRD_PARTY_NOTICES.md`.
-No avatar items or other Microsoft content are included; bring your own.
-
-## Local folders (git-ignored)
-
-- `samples/`: test item packages.
-- `profiles/`: profile copies from the console; keep an untouched backup.
-- `reference/`: reference profiles. Never commit a `KV.bin` (another
-  console's keys).
+MIT, see [LICENSE](LICENSE). Third-party code and the font:
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). No avatar items or other
+Microsoft content are included.

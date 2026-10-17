@@ -151,3 +151,10 @@ Test 4 (console-bound license, licensee F000 + console id) was never run.
    in entry [1]); with the shared XUID in [1] it doesn't appear.
 4. Award items: mark PEC records as earned + update dashboard counters +
    rehash/resign PEC and profile.
+5. "Avatar Editor" menu card: XamLaunchAvatarEditor (xam 0x7DB). Called with
+   only a user index it crashed the console (r4/r5 held leftovers). The
+   dashboard (dash.xex, unpacked: unencrypted, LZX) calls it exactly once, at
+   0x927DABE0, with r3 = user index (byte), r4 = 0, r5 = 0, and ignores the
+   result; the app now does the same (checked in its disassembly). dash.xex
+   holds no path to an editor .xex, so the editor isn't launched by path.
+   To check: whether the editor opens, and where leaving it leads.
