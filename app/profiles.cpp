@@ -10,6 +10,7 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 // Profiles live in Content\<offline xuid>\FFFE07D1\00010000\<offline xuid>.
 static const char* kProfileSubfolder = "\\FFFE07D1\\00010000\\";
@@ -24,18 +25,50 @@ static bool IsOfflineXuidName(const std::string& name)
     return true;
 }
 
+// What the system reports for a signed-in user.
+struct SignedInInfo
+{
+    std::string gamertag;
+    u64 offlineXuid;    // E..., the one the profile's folder is named after
+    u64 onlineXuid;     // 0 if it has none
+};
+
+// Asks with both XUID flags, 1 and 2, and sorts the answers by range: E... is
+// the offline XUID, anything else non-zero the online one. Which flag asks for
+// which isn't documented anywhere we could check (Xenia ignores the flags), and
+// taking flag 1 for the offline XUID made a signed-in activated profile miss
+// its own folder. False if the user isn't signed in.
+static bool GetSignedInInfo(u32 user, SignedInInfo* out)
+{
+    out->gamertag.clear();
+    out->offlineXuid = 0;
+    out->onlineXuid = 0;
+    bool signedIn = false;
+    for (u32 flags = 1; flags <= 2; flags++)
+    {
+        XUserSigninInfo info;
+        memset(&info, 0, sizeof info);
+        if (XamUserGetSigninInfo(user, flags, &info) != 0 || info.signinState == 0)
+            continue;
+        signedIn = true;
+        info.name[sizeof info.name - 1] = 0;
+        out->gamertag = info.name;
+        if ((info.xuid >> 60) == 0xE)
+            out->offlineXuid = info.xuid;
+        else if (IsOnlineXuid(info.xuid))
+            out->onlineXuid = info.xuid;
+    }
+    return signedIn;
+}
+
 // Matches the XUID or the gamertag, so a profile in use is caught even if one
 // of the two isn't what the console reports.
 static bool IsSignedIn(u64 offlineXuid, const std::string& gamertag)
 {
     for (u32 user = 0; user < 4; user++)
     {
-        XUserSigninInfo info;
-        memset(&info, 0, sizeof info);
-        if (XamUserGetSigninInfo(user, XUSER_GET_SIGNIN_INFO_OFFLINE_XUID_ONLY, &info) != 0 || info.signinState == 0)
-            continue;
-        info.name[sizeof info.name - 1] = 0;
-        if (info.xuid == offlineXuid || gamertag == info.name)
+        SignedInInfo info;
+        if (GetSignedInInfo(user, &info) && (info.offlineXuid == offlineXuid || info.gamertag == gamertag))
             return true;
     }
     return false;
@@ -47,26 +80,45 @@ static bool SignedInUser(u64 offlineXuid, std::string* gamertag, u64* onlineXuid
 {
     for (u32 user = 0; user < 4; user++)
     {
-        XUserSigninInfo info;
-        memset(&info, 0, sizeof info);
-        if (XamUserGetSigninInfo(user, XUSER_GET_SIGNIN_INFO_OFFLINE_XUID_ONLY, &info) != 0 || info.signinState == 0 ||
-            info.xuid != offlineXuid)
+        SignedInInfo info;
+        if (!GetSignedInInfo(user, &info) || info.offlineXuid != offlineXuid)
             continue;
-        info.name[sizeof info.name - 1] = 0;
-        *gamertag = info.name;
-        XUserSigninInfo online;
-        memset(&online, 0, sizeof online);
-        bool known = XamUserGetSigninInfo(user, XUSER_GET_SIGNIN_INFO_ONLINE_XUID_ONLY, &online) == 0 &&
-                     online.xuid != offlineXuid && IsOnlineXuid(online.xuid);
-        *onlineXuid = known ? online.xuid : 0;
+        *gamertag = info.gamertag;
+        *onlineXuid = info.onlineXuid;
         return true;
     }
+    return false;
+}
+
+// Fills an entry with what the system reports for a signed-in profile, for
+// when its file can't be read; false if that profile isn't signed in.
+static bool FillFromSystem(ProfileEntry* entry, u64 offlineXuid)
+{
+    entry->info.offlineXuid = offlineXuid;
+    entry->info.onlineXuid = 0;
+    entry->info.reservedFlags = 0;
+    entry->info.signatureValid = true;
+    entry->info.kind = kProfileOffline;
+    if (!SignedInUser(offlineXuid, &entry->info.gamertag, &entry->info.onlineXuid))
+        return false;
+    entry->signedIn = true;
+    if (entry->info.onlineXuid != 0)
+        entry->info.kind = entry->info.onlineXuid == kSharedOnlineXuid ? kProfileActivated : kProfileLive;
+    return true;
+}
+
+static bool ContainsIgnoringCase(const std::vector<std::string>& names, const std::string& name)
+{
+    for (size_t i = 0; i < names.size(); i++)
+        if (names[i].size() == name.size() && strncasecmp(names[i].c_str(), name.c_str(), name.size()) == 0)
+            return true;
     return false;
 }
 
 std::vector<ProfileEntry> ScanProfiles()
 {
     std::vector<ProfileEntry> profiles;
+    std::vector<u64> folderXuids;   // each listed profile's folder name, as a number
     std::vector<Drive> drives = AvailableDrives();
     for (size_t d = 0; d < drives.size(); d++)
     {
@@ -76,44 +128,65 @@ std::vector<ProfileEntry> ScanProfiles()
         {
             if (!IsOfflineXuidName(owners[i]))
                 continue;
+            // Found by listing its folder, not by asking for the file: the system
+            // holds a signed-in profile's file open, and then even a query of its
+            // attributes (stat) can fail.
+            std::string folder = content + "\\" + owners[i] + kProfileSubfolder;
+            if (!ContainsIgnoringCase(ListFolder(folder, false), owners[i]))
+                continue;   // a folder of saves without a profile
             ProfileEntry entry;
             entry.drive = drives[d].name;
-            entry.path = content + "\\" + owners[i] + kProfileSubfolder + owners[i];
+            entry.path = folder + owners[i];
             entry.signedIn = false;
-            if (!PathExists(entry.path))
-                continue;   // a folder of saves without a profile
+            u64 offlineXuid = 0;
+            ParseHex64(owners[i].c_str(), &offlineXuid);
+            folderXuids.push_back(offlineXuid);
             std::vector<u8> data;
             if (ReadWholeFile(entry.path, &data) && !data.empty())
             {
                 if (ProfileInspect(&data[0], (u32)data.size(), &entry.info, &entry.error))
-                    entry.signedIn = IsSignedIn(entry.info.offlineXuid, entry.info.gamertag);
+                    entry.signedIn = IsSignedIn(entry.info.offlineXuid, entry.info.gamertag) ||
+                                     IsSignedIn(offlineXuid, entry.info.gamertag);
                 else
                     entry.info.gamertag = owners[i];
                 profiles.push_back(entry);
                 continue;
             }
-
-            // The file of a signed-in profile is held open by the system; what
-            // matters then comes from the system instead.
-            u64 offlineXuid = 0;
-            ParseHex64(owners[i].c_str(), &offlineXuid);
-            entry.info.offlineXuid = offlineXuid;
-            entry.info.onlineXuid = 0;
-            entry.info.reservedFlags = 0;
-            entry.info.signatureValid = true;
-            entry.info.kind = kProfileOffline;
-            if (SignedInUser(offlineXuid, &entry.info.gamertag, &entry.info.onlineXuid))
-            {
-                entry.signedIn = true;
-                if (entry.info.onlineXuid != 0)
-                    entry.info.kind = entry.info.onlineXuid == kSharedOnlineXuid ? kProfileActivated : kProfileLive;
-            }
-            else
+            if (!FillFromSystem(&entry, offlineXuid))
             {
                 entry.info.gamertag = owners[i];
                 entry.error = "cannot read the profile";
             }
+            xsdk_log_write("profiles: %s can't be read%s", entry.path.c_str(), entry.signedIn ? " (signed in)" : "");
             profiles.push_back(entry);
+        }
+    }
+
+    // Signed-in profiles the scan didn't find (stored somewhere it doesn't look)
+    // are listed from what the system reports.
+    for (u32 user = 0; user < 4; user++)
+    {
+        SignedInInfo info;
+        if (!GetSignedInInfo(user, &info))
+            continue;
+        xsdk_log_write("profiles: user %u signed in: %s, offline %016llX, online %016llX", (unsigned)user,
+                       info.gamertag.c_str(), (unsigned long long)info.offlineXuid, (unsigned long long)info.onlineXuid);
+        // Already listed if its folder, its header's XUID or its gamertag matches.
+        bool listed = false;
+        for (size_t i = 0; i < profiles.size() && !listed; i++)
+            listed = (info.offlineXuid != 0 && (folderXuids[i] == info.offlineXuid ||
+                                                profiles[i].info.offlineXuid == info.offlineXuid)) ||
+                     profiles[i].info.gamertag == info.gamertag;
+        if (listed || info.offlineXuid == 0)
+            continue;
+        ProfileEntry entry;
+        entry.drive = "Signed in";
+        entry.signedIn = false;
+        if (FillFromSystem(&entry, info.offlineXuid))
+        {
+            xsdk_log_write("profiles: signed-in %s not found on the drives", entry.info.gamertag.c_str());
+            profiles.push_back(entry);
+            folderXuids.push_back(info.offlineXuid);
         }
     }
     return profiles;
@@ -124,14 +197,9 @@ std::vector<u64> SignedInOnlineXuids()
     std::vector<u64> xuids;
     for (u32 user = 0; user < 4; user++)
     {
-        XUserSigninInfo info;
-        memset(&info, 0, sizeof info);
-        if (XamUserGetSigninInfo(user, XUSER_GET_SIGNIN_INFO_OFFLINE_XUID_ONLY, &info) != 0 || info.signinState == 0)
-            continue;
-        std::string gamertag;
-        u64 online = 0;
-        if (SignedInUser(info.xuid, &gamertag, &online) && online != 0)
-            xuids.push_back(online);
+        SignedInInfo info;
+        if (GetSignedInInfo(user, &info) && info.onlineXuid != 0)
+            xuids.push_back(info.onlineXuid);
     }
     return xuids;
 }

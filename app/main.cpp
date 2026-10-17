@@ -612,9 +612,13 @@ public:
         {
             const ProfileEntry& p = m_profiles[m_profileIndex];
             std::vector<std::string> lines;
-            lines.push_back("Gives " + p.info.gamertag + " the shared online XUID");
-            lines.push_back("and re-signs it with this console's key.");
-            lines.push_back("A backup is saved to Backups first.");
+            char xuid[24];
+            snprintf(xuid, sizeof xuid, "%016llX", (unsigned long long)kSharedOnlineXuid);
+            lines.push_back("New online XUID for " + p.info.gamertag + ":");
+            lines.push_back(std::string("  ") + xuid);
+            lines.push_back("(the same for every activated profile)");
+            lines.push_back("Re-signed with this console's key; a backup");
+            lines.push_back("is saved to Backups first.");
             std::vector<std::string> options;
             options.push_back("Activate " + p.info.gamertag);
             options.push_back("Cancel");
@@ -1462,6 +1466,18 @@ private:
             c.FillRoundRect(driveX, y + 12, driveW, 38, 19, kColorKey);
             c.DrawText(driveX + 16, y + 15, p.drive, kColorDim);
             DrawBoldText(c, textX, y - 2, p.info.gamertag, kColorText, 1, driveX - 24 - textX);
+            // Its XUID next to the gamertag: the online one once it has one,
+            // else the offline one the profile is named after.
+            if (p.error.empty())
+            {
+                char xuid[48];
+                if (p.info.onlineXuid)
+                    snprintf(xuid, sizeof xuid, "XUID %016llX", (unsigned long long)p.info.onlineXuid);
+                else
+                    snprintf(xuid, sizeof xuid, "offline XUID %016llX", (unsigned long long)p.info.offlineXuid);
+                int xuidX = textX + Canvas::TextWidth(p.info.gamertag) + 32;
+                c.DrawText(xuidX, y - 2, xuid, kColorDim, 1, driveX - 24 - xuidX);
+            }
             u32 color;
             std::string state = StateText(p, &color);
             c.DrawText(textX, y + 30, state, color, 1, driveX - 24 - textX);
@@ -1485,7 +1501,6 @@ private:
         p.info.kind = kProfileActivated;
         std::vector<std::string> lines(1, p.info.gamertag + " is activated.");
         lines.push_back("Backup: " + backup);
-        lines.push_back("Restart the console before signing in.");
         ShowMessage("Done", lines);
     }
 

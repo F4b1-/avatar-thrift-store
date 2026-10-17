@@ -24,15 +24,9 @@ struct XUserSigninInfo
     char     name[16];
 };
 
-enum
-{
-    // Asks for the offline XUID, the one profiles are named after.
-    XUSER_GET_SIGNIN_INFO_OFFLINE_XUID_ONLY = 1,
-    // Asks for the online XUID (0 when the profile has none).
-    XUSER_GET_SIGNIN_INFO_ONLINE_XUID_ONLY = 2,
-};
-
-// 0 (ERROR_SUCCESS) when user_index (0-3) is signed in; fills `info`.
+// 0 (ERROR_SUCCESS) when user_index (0-3) is signed in; fills `info`. `flags`
+// 1 and 2 each ask for one of the two XUIDs, offline or online; which is which
+// is unconfirmed, so profiles.cpp asks with both and sorts the answers.
 uint32_t XamUserGetSigninInfo(uint32_t userIndex, uint32_t flags, XUserSigninInfo* info);
 
 }
