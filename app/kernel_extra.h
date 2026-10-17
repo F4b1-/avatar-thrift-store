@@ -9,7 +9,7 @@ extern "C"
 
 // Signs a 20-byte SHA-1 hash with the console's private key and returns the
 // console certificate (0x1A8 bytes) followed by the signature (0x80 bytes),
-// laid out as a CON header holds them at 0x004 (docs/STATUS.md). The return
+// laid out as a CON header holds them at 0x004 (README, "Key findings"). The return
 // value's meaning is unconfirmed (assumed BOOL); callers verify the output instead.
 uint32_t XeKeysConsolePrivateKeySign(const uint8_t* hash, uint8_t* consoleSignature);
 

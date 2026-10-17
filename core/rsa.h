@@ -1,5 +1,5 @@
 // RSA signature check, PKCS#1 v1.5 over a SHA-1 hash, as the console signs
-// profiles (see docs/STATUS.md, "CON signature"). Verification only: signing
+// profiles (README, "Key findings: Profile signatures"). Verification only: signing
 // is done by the console's own key, never by this code.
 #pragma once
 

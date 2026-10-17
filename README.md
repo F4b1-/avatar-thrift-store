@@ -97,8 +97,6 @@ future projects.
   crashes. The system then closes the calling app and opens the editor for
   that user.
 
-More details, formats and test results: [docs/STATUS.md](docs/STATUS.md).
-
 ## Building
 
 **Console app** (WSL Debian with xsdk in `~/src/xsdk` and its toolchain in

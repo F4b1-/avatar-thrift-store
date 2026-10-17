@@ -6,7 +6,7 @@
 // hard disk's Content\0000000000000000\AAAAAAAA\00009000).
 // "Activate Offline Profile": gives an offline profile that XUID, the way
 // 360mpGui's offline-to-online maker does, and re-signs it with this
-// console's own key. See docs/STATUS.md for the formats behind both.
+// console's own key. The README's "Key findings" describe the formats behind both.
 //
 // Controls: D-pad/left stick to move, LB/RB a page, A to choose, B to go back,
 // Y to search, BACK to quit.
