@@ -37,6 +37,8 @@ public:
     void DrawImage(int x, int y, int w, int h, const u32* pixels);
     // The same, scaled from sw x sh to w x h with bilinear filtering.
     void DrawImageScaled(int x, int y, int w, int h, const u32* pixels, int sw, int sh);
+    // Only the scaling, into `out` (w x h): for images drawn often at one size.
+    static void ScaleImage(const u32* pixels, int sw, int sh, int w, int h, std::vector<u32>* out);
 
     // Limits all drawing to a rectangle until ResetClip.
     void SetClip(int x, int y, int w, int h);

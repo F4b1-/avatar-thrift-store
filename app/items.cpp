@@ -12,9 +12,12 @@
 #include <ctype.h>
 
 #include <algorithm>
+#include <set>
 
 static const char* kItemsFolder = "game:\\AvatarItems";
 static const size_t kMaxReportedErrors = 3;
+// Enough of a package for its type, display name and asset id.
+static const u32 kItemHeaderBytes = 0x1800;
 
 const char* ItemsFolder()
 {
@@ -155,29 +158,64 @@ static bool DecodeIcon(const u8* png, u32 bytes, std::vector<u32>* icon)
     return true;
 }
 
-static Item ReadItem(const std::string& relative, const std::string& fileName, const std::string& installedFolder,
-                     const std::vector<u64>& licensees)
+static std::string Upper(const std::string& text)
+{
+    std::string out(text);
+    for (size_t i = 0; i < out.size(); i++)
+        out[i] = (char)toupper((unsigned char)out[i]);
+    return out;
+}
+
+// The first stage, for listing: the header's start only (the display name ends
+// at 0x1711), no hash check, no preview. `installed` comes from whether a file
+// of the patched name is in the Content folder; LoadItemDetails checks it.
+static Item ReadItemHeader(const std::string& relative, const std::string& fileName,
+                           const std::set<std::string>& installedNames)
 {
     Item item;
     item.path = Join(relative, fileName);
     item.name = fileName;
     item.installed = false;
+    item.detailsLoaded = false;
 
-    // Items are small (tens of KB), and the preview, icon.png, is inside the package.
-    std::vector<u8> data;
-    if (!ReadWholeFile(FullPath(item.path), &data) || data.empty())
+    std::vector<u8> header;
+    StfsHeader h;
+    if (!ReadFilePrefix(FullPath(item.path), kItemHeaderBytes, &header) ||
+        !StfsParseHeader(header.empty() ? NULL : &header[0], (u32)header.size(), &h, &item.error))
     {
-        item.error = "cannot read the file";
+        if (item.error.empty()) item.error = "cannot read the file";
+        item.detailsLoaded = true;   // nothing more to load
         return item;
     }
-    if (!AvatarItemValidate(&data[0], (u32)data.size(), &item.error))
+    if (h.contentType != kContentTypeAvatarItem)
+    {
+        item.error = std::string("not an avatar item (content type: ") + StfsContentTypeName(h.contentType) + ")";
+        item.detailsLoaded = true;
         return item;
-
-    StfsHeader h;
-    StfsParseHeader(&data[0], (u32)data.size(), &h, NULL);
+    }
     // Avatar items' display names start with a slash ("/Ducktales Logo Tee").
     if (!h.displayName.empty())
         item.name = h.displayName[0] == '/' ? h.displayName.substr(1) : h.displayName;
+    item.installedName = AvatarItemPatchedFileName(&header[0], kAvatarDefaultTitleId);
+    item.installed = installedNames.count(Upper(item.installedName)) != 0;
+    return item;
+}
+
+void LoadItemDetails(Item* item, const std::vector<u64>& licensees)
+{
+    if (item->detailsLoaded)
+        return;
+    item->detailsLoaded = true;
+
+    // Items are small (tens of KB), and the preview, icon.png, is inside the package.
+    std::vector<u8> data;
+    if (!ReadWholeFile(FullPath(item->path), &data) || data.empty())
+    {
+        item->error = "cannot read the file";
+        return;
+    }
+    if (!AvatarItemValidate(&data[0], (u32)data.size(), &item->error))
+        return;
 
     // icon.png is 128 x 128; the header's thumbnail is a 64 x 64 stand-in.
     StfsPackage pkg;
@@ -185,25 +223,30 @@ static Item ReadItem(const std::string& relative, const std::string& fileName, c
     const StfsFileEntry* icon = NULL;
     if (pkg.Open(&data[0], (u32)data.size(), NULL) && (icon = pkg.FindFile("icon.png")) != NULL &&
         pkg.ReadFile(*icon, &png, NULL) && !png.empty())
-        DecodeIcon(&png[0], (u32)png.size(), &item.icon);
+        DecodeIcon(&png[0], (u32)png.size(), &item->icon);
     const u8* thumbnail = NULL;
     u32 thumbnailBytes = 0;
-    if (item.icon.empty() && StfsThumbnail(&data[0], (u32)data.size(), &thumbnail, &thumbnailBytes))
-        DecodeIcon(thumbnail, thumbnailBytes, &item.icon);
+    if (item->icon.empty() && StfsThumbnail(&data[0], (u32)data.size(), &thumbnail, &thumbnailBytes))
+        DecodeIcon(thumbnail, thumbnailBytes, &item->icon);
 
-    item.installed = InstalledFor(installedFolder + AvatarItemPatchedFileName(&data[0], kAvatarDefaultTitleId), licensees);
-    return item;
+    item->installed = item->installed && InstalledFor(InstalledFolder() + item->installedName, licensees);
 }
 
-ItemListing ScanItemFolder(const std::string& relative, const std::vector<u64>& licensees)
+ItemListing ScanItemFolder(const std::string& relative)
 {
     ItemListing listing;
     std::string full = FullPath(relative);
-    std::string installedFolder = InstalledFolder();
+
+    // One listing of the Content folder instead of a lookup per item.
+    std::set<std::string> installedNames;
+    std::vector<std::string> installed = ListFolder(InstalledFolder(), false);
+    for (size_t i = 0; i < installed.size(); i++)
+        installedNames.insert(Upper(installed[i]));
 
     std::vector<std::string> files = ListFolder(full, false);
+    listing.items.reserve(files.size());
     for (size_t i = 0; i < files.size(); i++)
-        listing.items.push_back(ReadItem(relative, files[i], installedFolder, licensees));
+        listing.items.push_back(ReadItemHeader(relative, files[i], installedNames));
     std::sort(listing.items.begin(), listing.items.end(), ItemLess);
 
     listing.folders = ListFolder(full, true);

@@ -20,6 +20,10 @@ struct Item
     std::string error;          // why it can't be installed, if it can't
     std::vector<u32> icon;      // kIconSize x kIconSize ARGB, empty without one
     bool installed;             // and licensed to every one of the licensees
+    // Listing reads only the header; the preview, the full check and the
+    // license check come with LoadItemDetails.
+    bool detailsLoaded;
+    std::string installedName;  // its file name in the Content folder
 };
 
 // One folder's contents, each sorted by name.
@@ -37,8 +41,14 @@ const char* ItemsFolder();
 // system for the signed-in ones, whose files are held open).
 std::vector<u64> ItemLicensees();
 
-// Reads a folder below AvatarItems ("" for AvatarItems itself).
-ItemListing ScanItemFolder(const std::string& relative, const std::vector<u64>& licensees);
+// Reads a folder below AvatarItems ("" for AvatarItems itself): the start of
+// each item's header only, so large folders open quickly. `installed` means a
+// copy is in the Content folder until LoadItemDetails checks its license.
+ItemListing ScanItemFolder(const std::string& relative);
+
+// Reads the whole package: checks it, decodes its preview and checks the
+// installed copy's license against `licensees`. Does nothing the second time.
+void LoadItemDetails(Item* item, const std::vector<u64>& licensees);
 
 // Every folder below AvatarItems, at any depth, as relative paths.
 std::vector<std::string> IndexItemFolders();

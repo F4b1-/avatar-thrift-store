@@ -205,9 +205,13 @@ static int DrawCard(Canvas& c, int x, int y, int w, int h, int radius, bool sele
 {
     if (selected && lift)
         y -= 4;
+    // The shadow shows only below the card, so only its bottom part is drawn
+    // (blending the whole card area twice is slow on the console).
     int drop = selected && lift ? 8 : 4;
-    c.FillRoundRect(x - 1, y + drop - 1, w + 2, h + 2, radius + 1, 0x30000000);
-    c.FillRoundRect(x, y + drop, w, h, radius, 0x40000000);
+    int part = 2 * radius + 2;
+    part = part < h ? part : h;
+    c.FillRoundRect(x - 1, y + h + drop + 1 - part, w + 2, part, radius + 1, 0x30000000);
+    c.FillRoundRect(x, y + h + drop - part, w, part, radius, 0x40000000);
     if (selected)
         c.FillRoundRect(x - 4, y - 4, w + 8, h + 8, radius + 4, kColorGreen);
     c.FillRoundRect(x, y, w, h, radius, fill);
@@ -335,13 +339,16 @@ static void DrawAddAllIcon(Canvas& c, int x, int y)
     c.FillRoundRect(x + 14, y + 28, 36, 8, 4, kColorGreen);
 }
 
-static void DrawItemImage(Canvas& c, int x, int y, int size, const Item& item)
+// The preview, already scaled to `size` (`scaled`), or a placeholder without one.
+static void DrawItemImage(Canvas& c, int x, int y, int size, const Item& item, const std::vector<u32>& scaled)
 {
-    if (!item.icon.empty())
+    if (!scaled.empty())
     {
-        c.DrawImageScaled(x, y, size, size, &item.icon[0], kIconSize, kIconSize);
+        c.DrawImage(x, y, size, size, &scaled[0]);
         return;
     }
+    if (!item.detailsLoaded)
+        return;   // still loading: just the spotlight for now
     int box = size * 3 / 4;
     int bx = x + (size - box) / 2;
     int by = y + (size - box) / 2;
@@ -839,9 +846,53 @@ private:
         }
     }
 
+    // Loads one tile's details (full check, preview, license) and scales its
+    // preview to tile size, once. True if there was anything to do.
+    bool LoadTile(int tile)
+    {
+        if (tile < 0 || tile >= Tiles())
+            return false;
+        Item& item = m_listing.items[tile];
+        bool work = !item.detailsLoaded;
+        LoadItemDetails(&item, m_licensees);
+        if (m_tileImages[tile].empty() && !item.icon.empty())
+        {
+            Canvas::ScaleImage(&item.icon[0], kIconSize, kIconSize, kTileImage, kTileImage, &m_tileImages[tile]);
+            work = true;
+        }
+        return work;
+    }
+
+public:
+    // Loads the details of the tiles on screen and the row below, for at most
+    // about 30 ms per frame so input stays responsive.
+    void LoadVisibleDetails()
+    {
+        if (m_screenId != kScreenItems || m_overlay == kOverlayWorking)
+            return;
+        int rows = ListRows();
+        int viewTop = m_scroll;
+        int viewBottom = m_scroll + (kViewBottom - kListTop) + kTileHeight;
+        u32 start = NowMs();
+        for (int tile = 0; tile < Tiles(); tile++)
+        {
+            int x, y, w, h;
+            ElementRect(rows + tile, &x, &y, &w, &h);
+            if (y + h < viewTop || y > viewBottom)
+                continue;
+            if (LoadTile(tile))
+                m_dirty = true;
+            if (NowMs() - start > 30)
+                break;
+        }
+    }
+
+private:
     void RescanFolder()
     {
-        m_listing = ScanItemFolder(m_folder, m_licensees);
+        // Headers only; previews come with LoadVisibleDetails.
+        m_listing = ScanItemFolder(m_folder);
+        m_tileImages.assign(m_listing.items.size(), std::vector<u32>());
         int total = ListRows() + Tiles();
         if (m_selected >= total)
             m_selected = total > 0 ? total - 1 : 0;
@@ -943,12 +994,17 @@ private:
             const std::string& name = m_listing.folders[m_selected - 1];
             OpenFolder(m_folder.empty() ? name : m_folder + "\\" + name, false);
         }
-        else if (!SelectedItem()->error.empty())
-            ShowMessage(SelectedItem()->name, std::vector<std::string>(1, "Can't be installed: " + SelectedItem()->error));
         else
         {
-            m_optionIndex = 0;
-            m_overlay = kOverlayItemActions;
+            LoadTile(m_selected - rows);   // in case it wasn't on screen long enough
+            if (!SelectedItem()->error.empty())
+                ShowMessage(SelectedItem()->name,
+                            std::vector<std::string>(1, "Can't be installed: " + SelectedItem()->error));
+            else
+            {
+                m_optionIndex = 0;
+                m_overlay = kOverlayItemActions;
+            }
         }
     }
 
@@ -963,7 +1019,7 @@ private:
         int imageY = top + 6;
         if (item.error.empty())
             c.FillCircle(imageX + kTileImage / 2, imageY + kTileImage / 2, kTileImage / 2 - 6, kPastels[index % 5]);
-        DrawItemImage(c, imageX, imageY, kTileImage, item);
+        DrawItemImage(c, imageX, imageY, kTileImage, item, m_tileImages[index]);
         if (item.error.empty())
             DrawTag(c, cardX + 8, top + 8, item.installed);
         u32 color = !item.error.empty() ? kColorBad : kColorText;
@@ -1052,16 +1108,30 @@ private:
         const Item* item = SelectedItem();
         if (!item)
             return;
+        int tile = m_selected - ListRows();
         std::string name = item->name;
         std::vector<u32> icon = item->icon;
         std::string error;
         bool installed = InstallItemFile(item->path, removeSource, m_licensees, &error);
-        RescanFolder();
         if (!installed)
         {
+            if (removeSource)
+                RescanFolder();   // it may be installed, with only the delete failed
             ShowMessage("Not installed", std::vector<std::string>(1, name + ": " + error));
             return;
         }
+        // Only this tile changed; a large folder isn't read again for it.
+        if (removeSource)
+        {
+            m_listing.items.erase(m_listing.items.begin() + tile);
+            m_tileImages.erase(m_tileImages.begin() + tile);
+            int total = ListRows() + Tiles();
+            if (m_selected >= total)
+                m_selected = total > 0 ? total - 1 : 0;
+            ScrollToSelected();
+        }
+        else
+            m_listing.items[tile].installed = true;
         ShowToast(removeSource ? "Unlocked, file removed" : "Unlocked", name, icon);
     }
 
@@ -1469,6 +1539,7 @@ private:
     std::string m_folder;                       // below AvatarItems, "" at the top
     std::vector<ItemPosition> m_positions;      // where B goes back to
     ItemListing m_listing;
+    std::vector<std::vector<u32> > m_tileImages; // the items' previews at tile size
     int m_selected;                             // list rows first, then tiles
     int m_scroll;                               // pixels
 
@@ -1518,6 +1589,7 @@ int main()
     {
         app.HandleInput(pad.Poll());
         app.RunPendingWork();
+        app.LoadVisibleDetails();
         app.Tick();
         // Redraw (and copy to the front buffers) only when something changed.
         if (app.TakeDirty())

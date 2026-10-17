@@ -35,17 +35,52 @@ void Canvas::ResetClip()
     SetClip(0, 0, m_width, m_height);
 }
 
+// `src` over `dst` by src's alpha. (v + 1 + (v >> 8)) >> 8 is v / 255 for every
+// v this can produce, without the division (slow on the console's CPU).
+static inline u32 Mix(u32 dst, u32 src)
+{
+    u32 a = src >> 24;
+    if (a == 0xFF)
+        return src;
+    if (a == 0)
+        return dst;
+    u32 ia = 255 - a;
+    u32 r = ((src >> 16) & 0xFF) * a + ((dst >> 16) & 0xFF) * ia;
+    u32 g = ((src >> 8) & 0xFF) * a + ((dst >> 8) & 0xFF) * ia;
+    u32 b = (src & 0xFF) * a + (dst & 0xFF) * ia;
+    r = (r + 1 + (r >> 8)) >> 8;
+    g = (g + 1 + (g >> 8)) >> 8;
+    b = (b + 1 + (b >> 8)) >> 8;
+    return 0xFF000000 | r << 16 | g << 8 | b;
+}
+
 void Canvas::FillRect(int x, int y, int w, int h, u32 color)
 {
     int x0 = x < m_clipX0 ? m_clipX0 : x;
     int y0 = y < m_clipY0 ? m_clipY0 : y;
     int x1 = x + w > m_clipX1 ? m_clipX1 : x + w;
     int y1 = y + h > m_clipY1 ? m_clipY1 : y + h;
+    if ((color >> 24) == 0)
+        return;
+    if (color == 0x80000000)
+    {
+        // Half-transparent black (the shade behind dialogs): halve each channel.
+        for (int row = y0; row < y1; row++)
+        {
+            u32* line = &m_pixels[row * m_width];
+            for (int col = x0; col < x1; col++)
+                line[col] = 0xFF000000 | ((line[col] >> 1) & 0x7F7F7F);
+        }
+        return;
+    }
     if ((color >> 24) != 0xFF)
     {
         for (int row = y0; row < y1; row++)
+        {
+            u32* line = &m_pixels[row * m_width];
             for (int col = x0; col < x1; col++)
-                Blend(col, row, color);
+                line[col] = Mix(line[col], color);
+        }
         return;
     }
     for (int row = y0; row < y1; row++)
@@ -63,29 +98,34 @@ void Canvas::FillRoundRect(int x, int y, int w, int h, int radius, u32 color)
     int r = radius;
     if (2 * r > w) r = w / 2;
     if (2 * r > h) r = h / 2;
-    // The straight middle part, then the rows with corners.
+    // The straight middle part, then the rows with corners. Coverage only grows
+    // from a row's ends inwards, so only the few edge pixels at each end are
+    // worked out one by one; from the first fully covered one it's a plain fill.
     FillRect(x, y + r, w, h - 2 * r, color);
     u32 alpha = color >> 24;
     for (int row = 0; row < r; row++)
     {
-        // Distance of the pixel centre below the corner circles' centres, as seen from the edge.
+        int top = y + row;
+        int bottom = y + h - 1 - row;
+        // Distance of the pixel centre from the corner circles' centres, as seen from the edge.
         float dy = r - row - 0.5f;
-        for (int col = 0; col < w; col++)
+        int col = 0;
+        for (; col < r; col++)
         {
-            float dx = col < r ? r - col - 0.5f : (col >= w - r ? col - (w - r) + 0.5f : 0.0f);
-            u32 a = alpha;
-            if (dx > 0)
-            {
-                float cover = r + 0.5f - sqrtf(dx * dx + dy * dy);
-                if (cover <= 0)
-                    continue;
-                if (cover < 1)
-                    a = (u32)(alpha * cover);
-            }
-            u32 pixel = a << 24 | (color & 0xFFFFFF);
-            Blend(x + col, y + row, pixel);
-            Blend(x + col, y + h - 1 - row, pixel);
+            float dx = r - col - 0.5f;
+            float cover = r + 0.5f - sqrtf(dx * dx + dy * dy);
+            if (cover >= 1)
+                break;
+            if (cover <= 0)
+                continue;
+            u32 pixel = (u32)(alpha * cover) << 24 | (color & 0xFFFFFF);
+            Blend(x + col, top, pixel);
+            Blend(x + w - 1 - col, top, pixel);
+            Blend(x + col, bottom, pixel);
+            Blend(x + w - 1 - col, bottom, pixel);
         }
+        FillRect(x + col, top, w - 2 * col, 1, color);
+        FillRect(x + col, bottom, w - 2 * col, 1, color);
     }
 }
 
@@ -156,28 +196,35 @@ void Canvas::Blend(int x, int y, u32 src)
 {
     if (x < m_clipX0 || x >= m_clipX1 || y < m_clipY0 || y >= m_clipY1)
         return;
-    u32 a = src >> 24;
     u32& dst = m_pixels[y * m_width + x];
-    if (a == 0xFF)
-    {
-        dst = src;
-        return;
-    }
-    u32 r = (((src >> 16) & 0xFF) * a + ((dst >> 16) & 0xFF) * (255 - a)) / 255;
-    u32 g = (((src >> 8) & 0xFF) * a + ((dst >> 8) & 0xFF) * (255 - a)) / 255;
-    u32 b = ((src & 0xFF) * a + (dst & 0xFF) * (255 - a)) / 255;
-    dst = 0xFF000000 | r << 16 | g << 8 | b;
+    dst = Mix(dst, src);
 }
 
 void Canvas::DrawImage(int x, int y, int w, int h, const u32* pixels)
 {
-    for (int row = 0; row < h; row++)
-        for (int col = 0; col < w; col++)
-            Blend(x + col, y + row, pixels[row * w + col]);
+    int x0 = x < m_clipX0 ? m_clipX0 : x;
+    int y0 = y < m_clipY0 ? m_clipY0 : y;
+    int x1 = x + w > m_clipX1 ? m_clipX1 : x + w;
+    int y1 = y + h > m_clipY1 ? m_clipY1 : y + h;
+    for (int row = y0; row < y1; row++)
+    {
+        u32* line = &m_pixels[row * m_width];
+        const u32* src = pixels + (row - y) * w - x;
+        for (int col = x0; col < x1; col++)
+            line[col] = Mix(line[col], src[col]);
+    }
 }
 
 void Canvas::DrawImageScaled(int x, int y, int w, int h, const u32* pixels, int sw, int sh)
 {
+    std::vector<u32> scaled;
+    ScaleImage(pixels, sw, sh, w, h, &scaled);
+    DrawImage(x, y, w, h, &scaled[0]);
+}
+
+void Canvas::ScaleImage(const u32* pixels, int sw, int sh, int w, int h, std::vector<u32>* out)
+{
+    out->resize(w * h);
     for (int row = 0; row < h; row++)
     {
         // Source position in 1/256 pixels, sampled at pixel centres.
@@ -195,14 +242,14 @@ void Canvas::DrawImageScaled(int x, int y, int w, int h, const u32* pixels, int 
             u32 fx = (u32)(sx & 0xFF);
             u32 p00 = pixels[y0 * sw + x0], p01 = pixels[y0 * sw + x1];
             u32 p10 = pixels[y1 * sw + x0], p11 = pixels[y1 * sw + x1];
-            u32 out = 0;
+            u32 pixel = 0;
             for (int shift = 0; shift < 32; shift += 8)
             {
                 u32 top = ((p00 >> shift) & 0xFF) * (256 - fx) + ((p01 >> shift) & 0xFF) * fx;
                 u32 bottom = ((p10 >> shift) & 0xFF) * (256 - fx) + ((p11 >> shift) & 0xFF) * fx;
-                out |= ((top * (256 - fy) + bottom * fy) >> 16) << shift;
+                pixel |= ((top * (256 - fy) + bottom * fy) >> 16) << shift;
             }
-            Blend(x + col, y + row, out);
+            (*out)[row * w + col] = pixel;
         }
     }
 }
@@ -277,8 +324,16 @@ void Screen::Present()
         for (int y = 0; y < c.m_height; y++)
         {
             const u32* line = &c.m_pixels[y * c.m_width];
-            for (int x = 0; x < c.m_width; x++)
-                front[TiledIndex(x, y, c.m_width)] = __builtin_bswap32(line[x]);
+            // Inside a tile, runs of 4 pixels (x & 3) are next to each other,
+            // so the address is worked out once per run.
+            for (int x = 0; x < c.m_width; x += 4)
+            {
+                volatile uint32_t* run = front + TiledIndex(x, y, c.m_width);
+                run[0] = __builtin_bswap32(line[x]);
+                run[1] = __builtin_bswap32(line[x + 1]);
+                run[2] = __builtin_bswap32(line[x + 2]);
+                run[3] = __builtin_bswap32(line[x + 3]);
+            }
         }
 #if defined(__powerpc__)
         __asm__ volatile("sync" ::: "memory");
