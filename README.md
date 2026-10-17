@@ -1,7 +1,6 @@
 # Avatar Thrift Store
 
-The Xbox 360 avatar marketplace is closed, but its items still work. Avatar
-Thrift Store is homebrew for modded Xbox 360 consoles that unlocks avatar item
+Avatar Thrift Store is a homebrew application for modded Xbox 360 consoles that unlocks avatar item
 packages for every profile on the console, including **offline profiles**,
 which normally can't wear marketplace items at all. Everything happens on the
 console; no PC tools needed. Built with [xsdk](https://github.com/xenosworks/xsdk),
@@ -13,8 +12,8 @@ no Microsoft SDK required.
   items. Signed on the console with its own key, with a backup first.
 - **Avatar Editor** *(beta)*: jumps straight to the dashboard's avatar editor.
 
-Runs on RGH/JTAG consoles; softmods are untested. No avatar items are
-included; bring your own.
+Runs on jailbroken consoles (RHG/JTAG, softmodded). No avatar items are
+included; bring your own (easy to find online).
 
 ## Getting started
 
