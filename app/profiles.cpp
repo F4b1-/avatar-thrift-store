@@ -204,6 +204,27 @@ std::vector<u64> SignedInOnlineXuids()
     return xuids;
 }
 
+int FirstSignedInUser(std::string* gamertag)
+{
+    for (u32 user = 0; user < 4; user++)
+    {
+        SignedInInfo info;
+        if (!GetSignedInInfo(user, &info))
+            continue;
+        *gamertag = info.gamertag;
+        return (int)user;
+    }
+    return -1;
+}
+
+u32 LaunchAvatarEditor(int user)
+{
+    xsdk_log_write("avatar editor: launching for user %d", user);
+    u32 result = XamLaunchAvatarEditor((u32)user, 0, 0);
+    xsdk_log_write("avatar editor: XamLaunchAvatarEditor returned 0x%08X", (unsigned)result);
+    return result;
+}
+
 static std::string BackupPath(const ProfileEntry& entry)
 {
     char xuid[17];

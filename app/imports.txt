@@ -5,3 +5,4 @@
 
 xboxkrnl.exe  0x256  XeKeysConsolePrivateKeySign
 xam.xex       0x227  XamUserGetSigninInfo
+xam.xex       0x7DB  XamLaunchAvatarEditor

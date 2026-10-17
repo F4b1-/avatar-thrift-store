@@ -29,4 +29,10 @@ struct XUserSigninInfo
 // is unconfirmed, so profiles.cpp asks with both and sorts the answers.
 uint32_t XamUserGetSigninInfo(uint32_t userIndex, uint32_t flags, XUserSigninInfo* info);
 
+// Leaves the running title for the avatar editor. Three arguments, as the
+// dashboard (dash.xex, its only call, at 0x927DABE0) passes them: the user
+// index (0-3) and two values it always sets to 0, meaning unknown. With only
+// the first one passed, the others held leftovers and the console crashed.
+// The dashboard ignores the result.
+uint32_t XamLaunchAvatarEditor(uint32_t userIndex, uint32_t reserved1, uint32_t reserved2);
 }

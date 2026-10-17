@@ -20,6 +20,7 @@
 #include "xsdk/log.h"
 
 #include <ctype.h>
+#include <math.h>
 #include <stdio.h>
 #include <time.h>
 
@@ -64,6 +65,7 @@ static const int kTileHeight = 212;
 static const int kTileImage = 152;
 
 static const char* kAppName = "Avatar Thrift Store";
+static const int kMenuCards = 3;
 static const u32 kToastMs = 2500;
 static const size_t kMaxQuery = 30;
 
@@ -690,48 +692,128 @@ private:
 
     void HandleMenu(u16 pressed)
     {
-        if (pressed & (kButtonUp | kButtonDown | kButtonLeft | kButtonRight))
-            m_menuIndex ^= 1;
+        if (pressed & (kButtonLeft | kButtonUp))
+            m_menuIndex = (m_menuIndex + kMenuCards - 1) % kMenuCards;
+        if (pressed & (kButtonRight | kButtonDown))
+            m_menuIndex = (m_menuIndex + 1) % kMenuCards;
         if (!(pressed & kButtonA))
             return;
         if (m_menuIndex == 0)
             StartWork(kWorkOpenItems, "Reading AvatarItems...");
-        else
+        else if (m_menuIndex == 1)
         {
             m_screenId = kScreenProfiles;
             StartWork(kWorkScanProfiles, "Looking for profiles...");
         }
+        else
+            OpenAvatarEditor();
+    }
+
+    // The editor works on a signed-in profile's avatar. The system then ends
+    // this app; if the app is still running, the system's answer is shown.
+    void OpenAvatarEditor()
+    {
+        std::string gamertag;
+        int user = FirstSignedInUser(&gamertag);
+        if (user < 0)
+        {
+            ShowMessage("No profile signed in", std::vector<std::string>(1, "Please sign in to jump to the avatar editor."));
+            return;
+        }
+        u32 result = LaunchAvatarEditor(user);
+        char code[64];
+        snprintf(code, sizeof code, "The system answered 0x%08X.", (unsigned)result);
+        std::vector<std::string> lines(1, "Opening the avatar editor for " + gamertag + ".");
+        lines.push_back(code);
+        ShowMessage("Avatar Editor", lines);
     }
 
     void DrawMenu(Canvas& c)
     {
         DrawHeader(c, "");
-        static const char* kOptions[2] = { "Add Items", "Activate Offline Profile" };
-        static const char* kHelp[2] =
+        static const char* kOptions[kMenuCards] = { "Add Items", "Activate Offline Profile", "Avatar Editor" };
+        static const char* kHelp[kMenuCards] =
         {
-            "Unlock items from the AvatarItems folder for every profile.",
+            "Browse and unlock items in the AvatarItems folder",
             "Get an offline profile ready to wear the items.",
+            "Go straight to the dashboard's Avatar Editor",
         };
-        static const u32 kHero[2] = { 0xFF5E8F4C, 0xFF6E5C8A };
-        const int w = 540;
+        // Not confirmed on every console yet.
+        static const bool kBeta[kMenuCards] = { false, true, true };
+        static const u32 kHero[kMenuCards] = { 0xFF5E8F4C, 0xFF6E5C8A, 0xFF4F6F8F };
+        const int gap = 30;
+        const int w = (c.Width() - 2 * kMarginX + 32 - (kMenuCards - 1) * gap) / kMenuCards;
         const int h = 420;
-        const int hero = 200;
-        for (int i = 0; i < 2; i++)
+        const int hero = 190;
+        for (int i = 0; i < kMenuCards; i++)
         {
-            int x = (c.Width() - 2 * w - 40) / 2 + i * (w + 40);
+            int x = kMarginX - 16 + i * (w + gap);
             int y = DrawCard(c, x, 168, w, h, 28, i == m_menuIndex, true);
             c.FillRoundRect(x, y, w, hero, 28, kHero[i]);
             c.FillRect(x, y + hero - 28, w, 28, kHero[i]);
             if (i == 0)
                 DrawShirtIcon(c, x + w / 2, y + hero / 2, kHero[i]);
-            else
+            else if (i == 1)
                 DrawProfileIcon(c, x + w / 2, y + hero / 2);
-            DrawBoldText(c, x + 32, y + hero + 20, kOptions[i], kColorText);
-            std::vector<std::string> help = WrapText(kHelp[i], w - 64);
-            for (size_t l = 0; l < help.size(); l++)
-                c.DrawText(x + 32, y + hero + 64 + (int)l * 34, help[l], kColorDim);
+            else
+                DrawHangerIcon(c, x + w / 2, y + hero / 2);
+            if (kBeta[i])
+            {
+                int bw = Canvas::TextWidth("BETA") + 24;
+                c.FillRoundRect(x + w - bw - 16, y + 19, bw, 34, 17, 0x40000000);
+                c.FillRoundRect(x + w - bw - 16, y + 16, bw, 34, 17, kColorYellow);
+                DrawBoldText(c, x + w - bw - 4, y + 17, "BETA", kColorInk);
+            }
+            int ty = y + hero + 20;
+            std::vector<std::string> title = WrapText(kOptions[i], w - 56);
+            for (size_t l = 0; l < title.size(); l++, ty += 34)
+                DrawBoldText(c, x + 28, ty, title[l], kColorText);
+            ty += 12;
+            std::vector<std::string> help = WrapText(kHelp[i], w - 56);
+            for (size_t l = 0; l < help.size(); l++, ty += 34)
+                c.DrawText(x + 28, ty, help[l], kColorDim);
         }
         DrawFooter(c, "A select   BACK quit");
+    }
+
+    // A line `radius` thick with round ends, as a row of discs.
+    static void DrawThickLine(Canvas& c, int x0, int y0, int x1, int y1, int radius, u32 color)
+    {
+        int dx = x1 - x0;
+        int dy = y1 - y0;
+        int steps = (dx < 0 ? -dx : dx) > (dy < 0 ? -dy : dy) ? (dx < 0 ? -dx : dx) : (dy < 0 ? -dy : dy);
+        for (int i = 0; i <= steps; i++)
+            c.FillCircle(x0 + dx * i / (steps ? steps : 1), y0 + dy * i / (steps ? steps : 1), radius, color);
+    }
+
+    // A clothes hanger, centred on (cx, cy), as even white strokes: a hook that
+    // rises from the neck, curls over to the left and ends pointing down, and
+    // the triangle of shoulders and bar.
+    static void DrawHangerIcon(Canvas& c, int cx, int cy)
+    {
+        const int stroke = 7;
+        const int apexY = cy - 8;
+        const int barY = cy + 50;
+        // The hook: an arc around (hookX, hookY) from its right side (the neck's
+        // top) over the top to a little past its left side.
+        const int r = 21;
+        const int hookX = cx - r;
+        const int hookY = cy - 34;
+        int px = cx;
+        int py = hookY;
+        for (int degrees = 5; degrees <= 215; degrees += 5)
+        {
+            float t = degrees * 3.14159265f / 180.0f;
+            int nx = hookX + (int)(r * cosf(t));
+            int ny = hookY - (int)(r * sinf(t));
+            DrawThickLine(c, px, py, nx, ny, stroke, kColorWhite);
+            px = nx;
+            py = ny;
+        }
+        DrawThickLine(c, cx, hookY, cx, apexY, stroke, kColorWhite);   // the neck
+        DrawThickLine(c, cx, apexY, cx - 110, barY, stroke, kColorWhite);
+        DrawThickLine(c, cx, apexY, cx + 110, barY, stroke, kColorWhite);
+        DrawThickLine(c, cx - 110, barY, cx + 110, barY, stroke, kColorWhite);
     }
 
     // A T-shirt with an amber logo, centred on (cx, cy).

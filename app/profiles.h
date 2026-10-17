@@ -25,6 +25,12 @@ std::vector<ProfileEntry> ScanProfiles();
 // The online XUIDs the system reports for the users signed in now.
 std::vector<u64> SignedInOnlineXuids();
 
+// The first signed-in user (0-3) and its gamertag; -1 if nobody is signed in.
+int FirstSignedInUser(std::string* gamertag);
+
+// Asks the system to open the avatar editor for `user`, the way the dashboard
+// does; the system then ends this app. Returns the system's answer (logged).
+u32 LaunchAvatarEditor(int user);
 // Activates an offline profile in place. A copy of the original goes to
 // game:\Backups first; nothing is written unless the console's signature
 // verifies. `backupPath` names the copy.
