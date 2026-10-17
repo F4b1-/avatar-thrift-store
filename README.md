@@ -33,6 +33,11 @@ Items only show for an avatar of their gender.
 
 ## Key findings
 
+Some of the features of this app came from having AI reverse engineer outdated windows executables
+the community used in the past. These programms have, for the most part, no publicly available source code.
+The key findings are documented here for use in 
+future projects.
+
 ### Avatar items
 
 - An avatar item is a `LIVE` package. The avatar editor only shows items whose
