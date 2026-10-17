@@ -28,6 +28,7 @@ included; bring your own (easy to find online).
    put them on.
 
 Controls: D-pad/left stick, A choose, B back, Y search, LB/RB page, BACK quit.
+Pull both triggers for a screenshot (PNG in `AvatarThriftStore\Screenshots`).
 Items only show for an avatar of their gender.
 
 ## Key findings

@@ -23,6 +23,7 @@ add_executable(AvatarThriftStore
     gfx.cpp
     items.cpp
     profiles.cpp
+    screenshot.cpp
     storage.cpp
     stb_image_impl.cpp
     ../core/account.cpp

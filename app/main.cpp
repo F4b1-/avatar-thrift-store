@@ -14,6 +14,7 @@
 #include "gfx.h"
 #include "items.h"
 #include "profiles.h"
+#include "screenshot.h"
 #include "../core/account.h"
 
 #include "xsdk/kernel.h"
@@ -102,14 +103,20 @@ static u32 NowMs()
 class Pad
 {
 public:
-    Pad() : m_held(0), m_repeatAt(0) {}
+    Pad() : m_held(0), m_repeatAt(0), m_triggersHeld(false), m_screenshot(false) {}
+
+    // True once when both triggers have just been pulled, the screenshot
+    // shortcut (the app uses the triggers for nothing else).
+    bool ScreenshotPressed() const { return m_screenshot; }
 
     u16 Poll()
     {
         INPUT_STATE state;
         u16 buttons = 0;
+        bool triggers = false;
         if (XamInputGetState(0, 0, &state) == ERROR_SUCCESS)
         {
+            triggers = state.gamepad.left_trigger > 128 && state.gamepad.right_trigger > 128;
             buttons = state.gamepad.buttons;
             if (state.gamepad.thumb_ly > 16000)
                 buttons |= kButtonUp;
@@ -130,12 +137,16 @@ public:
             m_repeatAt = now + 90;
         }
         m_held = buttons;
+        m_screenshot = triggers && !m_triggersHeld;
+        m_triggersHeld = triggers;
         return pressed;
     }
 
 private:
     u16 m_held;
     u32 m_repeatAt;
+    bool m_triggersHeld;
+    bool m_screenshot;
 };
 
 // ---------------------------------------------------------------------------
@@ -472,6 +483,7 @@ enum PendingWork
     kWorkIndexFolders,
     kWorkScanProfiles,
     kWorkActivate,
+    kWorkScreenshot,
 };
 
 // Where the item screen was, to come back to it.
@@ -570,6 +582,9 @@ public:
             break;
         case kWorkActivate:
             Activate();
+            break;
+        case kWorkScreenshot:
+            SaveTakenScreenshot();
             break;
         case kWorkNone:
             break;
@@ -950,6 +965,17 @@ private:
     }
 
 public:
+    // Keeps the screen as it is now (the last frame drawn, without the
+    // "Working..." that follows) and saves it as a PNG next to the app.
+    void TakeScreenshot()
+    {
+        if (m_overlay == kOverlayWorking)
+            return;
+        m_screen.canvas().SaveTo(&m_screenshot);
+        StartWork(kWorkScreenshot, "Saving screenshot...");
+        m_dirty = true;
+    }
+
     // Loads the details of the tiles on screen and the row below, for at most
     // about 30 ms per frame so input stays responsive.
     void LoadVisibleDetails()
@@ -1590,6 +1616,22 @@ private:
         ShowMessage("Done", lines);
     }
 
+    void SaveTakenScreenshot()
+    {
+        const Canvas& c = m_screen.canvas();
+        std::string path;
+        bool saved = SaveScreenshot(m_screenshot, c.Width(), c.Height(), &path);
+        m_screenshot.clear();
+        xsdk_log_write("screenshot: %s %s", saved ? "saved" : "failed", path.c_str());
+        if (!saved)
+        {
+            ShowMessage("Screenshot not saved", std::vector<std::string>(1, "It couldn't be written next to the app."));
+            return;
+        }
+        size_t slash = path.rfind('\\');
+        ShowToast("Screenshot saved", slash == std::string::npos ? path : path.substr(slash + 1), std::vector<u32>());
+    }
+
     // --- overlays
 
     void HandleOverlay(u16 pressed)
@@ -1668,6 +1710,7 @@ private:
     std::string m_toastTitle;
     std::string m_toastText;
     std::vector<u32> m_toastIcon;
+    std::vector<u32> m_screenshot;              // the screen to save, taken when asked
     u32 m_toastUntil;
     bool m_quit;
     bool m_dirty;
@@ -1689,6 +1732,8 @@ int main()
     while (!app.Quit())
     {
         app.HandleInput(pad.Poll());
+        if (pad.ScreenshotPressed())
+            app.TakeScreenshot();
         app.RunPendingWork();
         app.LoadVisibleDetails();
         app.Tick();

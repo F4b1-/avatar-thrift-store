@@ -35,6 +35,7 @@ Activate Offline Profile  (beta) lets an offline profile wear the items.
                           AvatarThriftStore\Backups.
 Avatar Editor             (beta) opens the dashboard's avatar editor.
 
+Pull both triggers for a screenshot: a PNG in AvatarThriftStore\Screenshots.
 The app writes a log next to itself (AvatarThriftStore.log).
 "@
 

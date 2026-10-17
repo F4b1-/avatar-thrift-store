@@ -3,11 +3,12 @@
 Avatar Thrift Store's own code is under the MIT License (`LICENSE`). It
 includes or is built with the following.
 
-## stb_image (third_party/stb_image.h)
+## stb_image and stb_image_write (third_party/)
 
-v2.30 by Sean Barrett, https://github.com/nothings/stb, used for decoding item
-previews (PNG). Available under the MIT License or as public domain
-(Unlicense), at your choice; the full text is at the end of the file.
+stb_image v2.30 and stb_image_write v1.16 by Sean Barrett,
+https://github.com/nothings/stb, used for decoding item previews and writing
+screenshots (PNG). Available under the MIT License or as public domain
+(Unlicense), at your choice; the full text is at the end of each file.
 
 ## tiled_index (app/gfx.cpp)
 
