@@ -27,5 +27,5 @@ KV.bin
 # development notes, kept locally
 /docs/STATUS.md
 
-# Screenshots: only the app's own PNGs belong in the repo
+# Screenshots go in as PNG; BMP originals stay local
 /screenshots/*.bmp
