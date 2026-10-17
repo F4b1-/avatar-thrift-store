@@ -1171,19 +1171,23 @@ private:
         c.ResetClip();
         DrawScrollBar(c, ContentHeight(), m_scroll);
 
-        // The selected item's full name and state, which a tile can't fit.
+        // The selected item's full name, which a tile can't fit, and its state
+        // when it is unlocked or can't be installed (new ones just show the name).
         if (const Item* item = SelectedItem())
         {
-            std::string state = !item->error.empty() ? item->error : (item->installed ? "Unlocked" : "New - A to unlock");
-            u32 fill = !item->error.empty() ? kColorBad : (item->installed ? kColorGreen : kColorYellow);
-            u32 color = item->error.empty() && !item->installed ? kColorInk : kColorWhite;
-            int stateW = Canvas::TextWidth(state) + 40;
-            int maxW = (c.Width() - 2 * kMarginX) / 2;
-            stateW = stateW < maxW ? stateW : maxW;
-            int stateX = c.Width() - kMarginX - stateW;
-            c.FillRoundRect(stateX, kInfoY - 4, stateW, 40, 20, fill);
-            c.DrawText(stateX + 20, kInfoY, state, color, 1, stateW - 40);
-            DrawBoldText(c, kMarginX, kInfoY, item->name, kColorText, 1, stateX - 32 - kMarginX);
+            int nameEnd = c.Width() - kMarginX;
+            if (!item->error.empty() || item->installed)
+            {
+                std::string state = !item->error.empty() ? item->error : "Unlocked";
+                int stateW = Canvas::TextWidth(state) + 40;
+                int maxW = (c.Width() - 2 * kMarginX) / 2;
+                stateW = stateW < maxW ? stateW : maxW;
+                int stateX = c.Width() - kMarginX - stateW;
+                c.FillRoundRect(stateX, kInfoY - 4, stateW, 40, 20, !item->error.empty() ? kColorBad : kColorGreen);
+                c.DrawText(stateX + 20, kInfoY, state, kColorWhite, 1, stateW - 40);
+                nameEnd = stateX - 32;
+            }
+            DrawBoldText(c, kMarginX, kInfoY, item->name, kColorText, 1, nameEnd - kMarginX);
         }
 
         DrawFooter(c, std::string("A choose   B ") + (m_positions.empty() ? "back" : "up") + "   Y search   LB/RB page");
