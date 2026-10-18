@@ -14,7 +14,7 @@ no Microsoft SDK required.
   items. Signed on the console with its own key, with a backup first.
 - **Avatar Editor** *(beta)*: jumps straight to the dashboard's avatar editor.
 
-Runs on jailbroken consoles (RGH/JTAG; softmodded consoles are untested). No
+Runs on jailbroken consoles. No
 avatar items are included; bring your own (easy to find online).
 
 ## Getting started
