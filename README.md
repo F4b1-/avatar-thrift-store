@@ -65,10 +65,11 @@ profiles found later are added the next time **Unlock Items** opens.
 ## Code layout
 
 ```
-core/    the file formats, plain C++ that runs on the PC and the console
-app/     the console app (xsdk)
-tools/   avtool, a PC command-line tool, and generator scripts
-tests/   unit tests for core/, run on the PC
+core/          the file formats, plain C++ that runs on the PC and the console
+app/           the console app (xsdk)
+tools/         avtool, a PC command-line tool, and generator scripts
+tests/         unit tests for core/, run on the PC
+third_party/   stb_image (PNG reading and writing) and xsdk (a submodule)
 ```
 
 - **`core/`** never opens a file or calls the console. It is handed a
@@ -171,10 +172,13 @@ The key findings are documented here for use in future projects.
 
 ## Building
 
-**Console app** (WSL Debian with xsdk in `~/src/xsdk` and its toolchain in
-`~/xsdk-gcc`, plus CMake, Ninja and Python 3):
+**Console app** (WSL Debian with CMake, Ninja and Python 3). xsdk is a git
+submodule in `third_party/xsdk`, at the version the app is built with; its
+toolchain is built once, into `~/xsdk-gcc`:
 
 ```powershell
+git submodule update --init                   # after cloning (or clone with --recursive)
+wsl -d Debian bash third_party/xsdk/tools/toolchain/build.sh   # once; takes a while
 .\build_xbox.ps1                              # -> build\xbox\AvatarThriftStore.xex
 .\tools\package_release.ps1 -Version 0.2.0    # -> dist\AvatarThriftStore-v0.2.0.zip
 ```

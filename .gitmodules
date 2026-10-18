@@ -1,0 +1,3 @@
+[submodule "third_party/xsdk"]
+	path = third_party/xsdk
+	url = https://github.com/xenosworks/xsdk.git
