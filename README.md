@@ -20,13 +20,14 @@ avatar items are included; bring your own (easy to find online).
 ## Getting started
 
 1. Download the zip from [Releases](../../releases) and copy the
-   `AvatarThriftStore` folder to the console, e.g. to `Hdd1:\`.
+   `AvatarThriftStore` folder to the _internal hard drive_ of the console.
 2. Put avatar item packages into `AvatarThriftStore\AvatarItems` (subfolders
    are fine, e.g. one per pack).
 3. Start `AvatarThriftStore.xex` from Aurora or FSD.
-4. Offline profiles: sign the profile out, then activate it under
+4. Offline profiles: Sign the profile out, then activate it under
    **Activate Offline Profile**. Xbox Live profiles need nothing.
-5. **Add Items**, pick items (or *Add all items*), then **Avatar Editor** to
+   Currently only profiles on the internal hard drive are listed.
+6. **Add Items**, pick items (or *Add all items*), then **Avatar Editor** to
    put them on.
 
 Controls: D-pad/left stick, A choose, B back, Y search, LB/RB page, BACK quit.
