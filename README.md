@@ -10,9 +10,12 @@ no Microsoft SDK required.
 
 - **Add Items**: browse a folder of item packages (with previews and search)
   and unlock them for every profile on the console.
-- **Activate Offline Profile** *(beta)*: lets an offline profile wear unlocked
+- **Profiles** *(beta)*: **Activate** lets an offline profile wear unlocked
   items. Signed on the console with its own key, with a backup first.
 - **Avatar Editor** *(beta)*: jumps straight to the dashboard's avatar editor.
+- **360sona** *(beta)*: save a profile's avatar as a sona code and open it on
+  [360sona.com](https://360sona.com), or put an avatar made there on a profile,
+  with the items it wears unlocked on the way. See [360sona](#360sona).
 
 Runs on jailbroken consoles (RGH/JTAG; softmodded consoles are untested). No
 avatar items are included; bring your own (easy to find online).
@@ -26,7 +29,7 @@ avatar items are included; bring your own (easy to find online).
    are fine, e.g. one per pack).
 3. Start `AvatarThriftStore.xex` from Aurora or FSD.
 4. Offline profiles: Sign the profile out, then activate it under
-   **Activate Offline Profile**. Xbox Live profiles need nothing. Profiles on
+   **Profiles** (pick it, then *Activate for items*). Xbox Live profiles need nothing. Profiles on
    the hard drive and on USB sticks are listed.
 5. **Add Items**, pick items (or *Add all items*), then **Avatar Editor** to
    put them on.
@@ -34,6 +37,47 @@ avatar items are included; bring your own (easy to find online).
 Controls: D-pad/left stick, A choose, B back, Y search, LB/RB page, BACK quit.
 Pull both triggers for a screenshot (PNG in `AvatarThriftStore\Screenshots`).
 Items only show for an avatar of their gender.
+
+## 360sona
+
+[360sona](https://360sona.com) is a web avatar editor that renders Xbox 360
+avatars the way the console does, with marketplace items, avatar awards and
+the built-in items to dress them in. It saves and opens the same
+avatar description the console keeps in each profile, so an avatar can go
+back and forth between the two without losing anything: body, face, colours
+and every worn item.
+
+They meet in a **sona code**: the avatar as a few lines of text.
+
+```
+360sona avatar v1
+# Paste this whole thing into 360sona -> My Sonas -> Import.
+AAAAAD9MzM0/a4UfABAAAAMcAAMA...
+```
+
+Sona codes live in `AvatarThriftStore\Sonas` as `.txt` (or `.sona`) files.
+
+- **Console to 360sona**: **Profiles**, pick a profile, *Save avatar to
+  Sonas*. Copy `Sonas\<gamertag>.txt` to a PC, then on 360sona open
+  *My Sonas*, *Import / Export*, *Open a .txt* (or paste its text) and
+  *Choose a slot*. Saving on 360sona needs a free account (a name and a
+  password).
+- **360sona to console**: on 360sona, *My Sonas*, *Import / Export*, *Save as
+  .txt*. Copy the file into `Sonas`, then **Profiles**, pick a profile, *Wear
+  a sona from Sonas*. The app shows what the avatar needs before anything changes:
+  - built-in items are on every console;
+  - marketplace items and awards whose package is in `AvatarItems` are
+    unlocked first, exactly like *Add Items* does;
+  - items it finds nowhere stay in the avatar as they are and show only if
+    the console has them (an award the profile earned, for example).
+
+  The profile is backed up to `Backups`, rewritten and re-signed with this
+  console's key, like *Activate*. Sign in and open the **Avatar Editor** to
+  see the result. The profile must be signed out, and must have an avatar
+  already (make one in the Avatar Editor once).
+
+The format is plain enough to use elsewhere: `core/sona.h` reads and writes
+it, and `avtool` has `sona-export`, `sona-info` and `sona-import`.
 
 ## Key findings
 
@@ -93,6 +137,25 @@ future projects.
   hash and returns the certificate and signature; the private key stays
   inside.
 
+### The avatar
+
+- A profile's avatar is setting `0x63E80044` (Avatar Information) in its
+  dashboard GPD, the file `FFFE07D1.gpd` inside the profile. It is a binary
+  setting of exactly 1000 bytes: the avatar description, big-endian, version
+  0 in its first 4 bytes.
+- Its 28 item GUIDs (head shape, face, body, worn items and a cache of the
+  required slots) are in the same byte order as an item package's asset id
+  at `0x3E1`. Their last 4 bytes are the item's title id, so an item
+  unlocked to `AAAAAAAA` has a new id, and the avatar has to name that one.
+- Built-in items all end in `C1C8F109A19CB2E0` and need nothing installed.
+- A binary setting record is the setting id (u32), 4 bytes, the type (u8,
+  `5` = binary), 7 bytes, the length (u32) at `0x10` and the data at `0x18`.
+  The avatar always has the same length, so it is replaced in place: the GPD,
+  and therefore the profile's file layout, don't change. Only the GPD's
+  blocks are rehashed, then the header hash, then the console signature.
+- Bytes `901-908` of the description hold the XUID of the profile it was
+  saved for; a worn sona keeps the profile's own.
+
 ### The avatar editor
 
 - The dashboard's avatar editor opens through `XamLaunchAvatarEditor` (xam
@@ -122,6 +185,7 @@ settings apart from other xsdk titles. The app writes a log next to itself
 ```
 
 `avtool` does the same steps on a PC (`info`, `patch`, `set-xuid`,
+`sona-export`, `sona-import`,
 `verify-sig`, ...); `set-xuid` doesn't sign, so resign its output with another
 tool.
 
