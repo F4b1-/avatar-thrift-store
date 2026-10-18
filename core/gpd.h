@@ -73,3 +73,21 @@ enum
 };
 
 bool GpdParseAvatarAward(const u8* data, u32 size, GpdAvatarAward* out);
+
+// A setting record (namespace 3): u32 setting id, 4 bytes, u8 data type, 7
+// bytes, then the value. Binary (type 5): u32 length at 0x10, the bytes at 0x18.
+enum
+{
+    kGpdSettingTypeBinary   = 5,
+    kGpdSettingBinaryHeader = 0x18,
+};
+
+// The setting's entry (matched on the low 32 bits of the entry id), or NULL.
+const GpdEntry* GpdFindSetting(const GpdFile& gpd, u32 settingId);
+
+// A binary setting's bytes. False if there is no such setting or it isn't binary.
+bool GpdReadBinarySetting(const GpdFile& gpd, u32 settingId, std::vector<u8>* out, std::string* error);
+
+// Overwrites a binary setting's bytes in `raw` (the whole GPD file) with
+// `size` bytes. Only the same length is supported, so no entry moves.
+bool GpdReplaceBinarySetting(std::vector<u8>* raw, u32 settingId, const u8* data, u32 size, std::string* error);

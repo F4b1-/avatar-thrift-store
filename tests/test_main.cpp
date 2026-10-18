@@ -3,9 +3,11 @@
 #include "../core/account.h"
 #include "../core/avatar_item.h"
 #include "../core/bytes.h"
+#include "../core/gpd.h"
 #include "../core/profile.h"
 #include "../core/rsa.h"
 #include "../core/sha1.h"
+#include "../core/sona.h"
 #include "../core/stfs.h"
 
 #include <stdio.h>
@@ -388,6 +390,140 @@ static void TestItemHelpers()
     CHECK(!StfsThumbnail(&pkg[0], (u32)pkg.size(), &png, &pngBytes));
 }
 
+// A description with a body, a built-in face item and one worn item that also
+// sits in the required-slot cache.
+static std::vector<u8> MakeManifest()
+{
+    std::vector<u8> m(kSonaManifestSize, 0);
+    static const u8 kBody[16] = { 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01,
+                                  0xC1, 0xC8, 0xF1, 0x09, 0xA1, 0x9C, 0xB2, 0xE0 };
+    static const u8 kShirt[16] = { 0x00, 0x00, 0x00, 0x08, 0xA2, 0x12, 0xA2, 0x31,
+                                   0xC0, 0x5F, 0x8A, 0x70, 0x4D, 0x53, 0x07, 0xE6 };
+    memcpy(&m[kSonaOffsetFigure], kBody, 16);
+    memcpy(&m[60], kBody, 16);          // first face record
+    memcpy(&m[352], kShirt, 16);        // first worn item
+    memcpy(&m[768], kShirt, 16);        // and the required-slot cache
+    WriteBE64(&m[kSonaOffsetOwner], 0x0009000012345678ull);
+    for (int i = 0; i < 9; i++)         // palette: arbitrary bytes
+        WriteBE32(&m[252 + i * 4], 0xFF102030u + (u32)i);
+    return m;
+}
+
+static void TestSonaCode()
+{
+    std::vector<u8> m = MakeManifest();
+    std::string code = SonaEncode(&m[0]);
+    CHECK(code.compare(0, 18, "360sona avatar v1\n") == 0);
+    CHECK(code.find("\n# Paste this whole thing into 360sona -> My Sonas -> Import.\n") != std::string::npos);
+    // 1000 bytes are 1336 base64 characters: 17 full lines of 76 and one of 44.
+    size_t lines = 0, longest = 0, start = 0;
+    while (start < code.size())
+    {
+        size_t end = code.find('\n', start);
+        longest = end - start > longest ? end - start : longest;
+        lines++;
+        start = end + 1;
+    }
+    CHECK(lines == 2 + 18 && longest == 76);
+
+    std::vector<u8> back;
+    std::string error;
+    CHECK(SonaDecode(code, &back, &error) && back == m);
+
+    // What a mail client or chat does to it still reads: CRLF, quoting,
+    // base64url, no padding, a line of prose above it.
+    std::string mangled;
+    for (size_t i = 0; i < code.size(); i++)
+    {
+        char ch = code[i] == '+' ? '-' : code[i] == '/' ? '_' : code[i];
+        if (ch == '\n')
+            mangled += "\r\n> ";
+        else if (ch != '=')
+            mangled += ch;
+    }
+    back.clear();
+    CHECK(SonaDecode("My avatar, from the console\r\n> " + mangled, &back, &error) && back == m);
+
+    CHECK(!SonaDecode("hello there", &back, &error));
+    CHECK(!SonaDecode("360sona avatar v1\nAAAA\n", &back, &error));
+    std::vector<u8> v1 = m;
+    v1[3] = 1;
+    CHECK(!SonaDecode(SonaEncode(&v1[0]), &back, &error));
+    std::vector<u8> nobody = m;
+    memset(&nobody[kSonaOffsetFigure], 0, 16);
+    CHECK(!SonaValidate(&nobody[0], kSonaManifestSize, &error));
+}
+
+static void TestSonaItems()
+{
+    std::vector<u8> m = MakeManifest();
+    CHECK(SonaGuidOffsets().size() == 28);
+    std::vector<std::vector<u8> > ids = SonaItemIds(&m[0]);
+    CHECK(ids.size() == 2);   // the body (also in a face record) and the shirt, each once
+    CHECK(SonaIsBuiltIn(&ids[0][0]) && !SonaIsBuiltIn(&ids[1][0]));
+    CHECK(SonaIdHex(&ids[1][0]) == "00000008A212A231C05F8A704D5307E6");
+
+    u8 unlocked[16];
+    memcpy(unlocked, &ids[1][0], 16);
+    unlocked[12] = unlocked[13] = unlocked[14] = unlocked[15] = 0xAA;
+    CHECK(SonaReplaceId(&m[0], &ids[1][0], unlocked) == 2);   // worn and required
+    CHECK(SonaIdHex(&m[352]) == "00000008A212A231C05F8A70AAAAAAAA");
+    CHECK(SonaIdHex(&m[768]) == "00000008A212A231C05F8A70AAAAAAAA");
+    CHECK(SonaReplaceId(&m[0], unlocked, unlocked) == 0);
+}
+
+// A dashboard GPD with one int setting and the avatar setting.
+static std::vector<u8> MakeDashboardGpd(u32 avatarBytes)
+{
+    const u32 capacity = 4, freeCapacity = 2;
+    const u32 dataStart = 0x18 + capacity * 0x12 + freeCapacity * 8;
+    const u32 intRecord = 0x18, avatarRecord = 0x18 + avatarBytes;
+    std::vector<u8> g(dataStart + intRecord + avatarRecord, 0);
+    memcpy(&g[0], "XDBF", 4);
+    WriteBE32(&g[0x04], 0x10000);
+    WriteBE32(&g[0x08], capacity);
+    WriteBE32(&g[0x0C], 2);
+    WriteBE32(&g[0x10], freeCapacity);
+    u8* e = &g[0x18];
+    e[0] = 0; e[1] = kGpdSetting; WriteBE64(e + 2, 0x10040006); WriteBE32(e + 10, 0); WriteBE32(e + 14, intRecord);
+    e += 0x12;
+    e[0] = 0; e[1] = kGpdSetting; WriteBE64(e + 2, kSonaSettingId); WriteBE32(e + 10, intRecord);
+    WriteBE32(e + 14, avatarRecord);
+    u8* d = &g[dataStart];
+    WriteBE32(d, 0x10040006); d[8] = 1; WriteBE32(d + 0x10, 1337);
+    d += intRecord;
+    WriteBE32(d, kSonaSettingId); d[8] = kGpdSettingTypeBinary; WriteBE32(d + 0x10, avatarBytes);
+    for (u32 i = 0; i < avatarBytes; i++)
+        d[0x18 + i] = (u8)i;
+    return g;
+}
+
+static void TestGpdAvatarSetting()
+{
+    std::vector<u8> raw = MakeDashboardGpd(kSonaManifestSize);
+    GpdFile gpd;
+    std::vector<u8> avatar;
+    std::string error;
+    CHECK(GpdParse(&raw[0], (u32)raw.size(), &gpd, &error));
+    CHECK(GpdFindSetting(gpd, kSonaSettingId) != NULL && GpdFindSetting(gpd, 0x63E80068) == NULL);
+    CHECK(GpdReadBinarySetting(gpd, kSonaSettingId, &avatar, &error) && avatar.size() == kSonaManifestSize &&
+          avatar[999] == 0xE7);
+    CHECK(!GpdReadBinarySetting(gpd, 0x10040006, &avatar, &error));   // an int, not binary
+
+    std::vector<u8> m = MakeManifest();
+    std::vector<u8> before = raw;
+    CHECK(GpdReplaceBinarySetting(&raw, kSonaSettingId, &m[0], kSonaManifestSize, &error));
+    CHECK(raw.size() == before.size());
+    CHECK(GpdParse(&raw[0], (u32)raw.size(), &gpd, &error) &&
+          GpdReadBinarySetting(gpd, kSonaSettingId, &avatar, &error) && avatar == m);
+    // Everything before the setting's bytes is as it was (they end the file).
+    CHECK(memcmp(&raw[0], &before[0], raw.size() - kSonaManifestSize) == 0);
+
+    CHECK(!GpdReplaceBinarySetting(&raw, kSonaSettingId, &m[0], 999, &error));
+    std::vector<u8> small = MakeDashboardGpd(16);
+    CHECK(!GpdReplaceBinarySetting(&small, kSonaSettingId, &m[0], kSonaManifestSize, &error));
+}
+
 int main()
 {
     TestSha1();
@@ -396,6 +532,9 @@ int main()
     TestAccount();
     TestRsaAndConSignature();
     TestItemHelpers();
+    TestSonaCode();
+    TestSonaItems();
+    TestGpdAvatarSetting();
 
     if (g_failures)
     {

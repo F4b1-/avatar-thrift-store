@@ -17,6 +17,7 @@ add_library(core STATIC
     core/rsa.cpp
     core/stfs_package.cpp
     core/sha1.cpp
+    core/sona.cpp
     core/stfs.cpp
 )
 target_include_directories(core PUBLIC core)

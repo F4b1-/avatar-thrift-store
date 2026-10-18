@@ -76,3 +76,62 @@ bool GpdParseAvatarAward(const u8* data, u32 size, GpdAvatarAward* out)
     out->lockedDescription   = ReadWide(data, size, &pos);
     return true;
 }
+
+const GpdEntry* GpdFindSetting(const GpdFile& gpd, u32 settingId)
+{
+    for (size_t i = 0; i < gpd.entries.size(); i++)
+        if (gpd.entries[i].ns == kGpdSetting && (u32)gpd.entries[i].id == settingId)
+            return &gpd.entries[i];
+    return NULL;
+}
+
+// Where a binary setting's bytes are in the file, checked against its entry.
+static bool BinarySettingSpan(const GpdFile& gpd, u32 settingId, u32* offset, u32* length, std::string* error)
+{
+    const GpdEntry* e = GpdFindSetting(gpd, settingId);
+    if (!e)
+    {
+        if (error) *error = "the setting is not in the GPD";
+        return false;
+    }
+    const u8* p = gpd.EntryData(*e);
+    if (e->length < kGpdSettingBinaryHeader || ReadBE32(p) != settingId || p[8] != kGpdSettingTypeBinary)
+    {
+        if (error) *error = "the setting is not binary data";
+        return false;
+    }
+    u32 n = ReadBE32(p + 0x10);
+    if (n > e->length - kGpdSettingBinaryHeader)
+    {
+        if (error) *error = "the setting is longer than its record";
+        return false;
+    }
+    *offset = gpd.dataStart + e->offset + kGpdSettingBinaryHeader;
+    *length = n;
+    return true;
+}
+
+bool GpdReadBinarySetting(const GpdFile& gpd, u32 settingId, std::vector<u8>* out, std::string* error)
+{
+    u32 offset, length;
+    if (!BinarySettingSpan(gpd, settingId, &offset, &length, error))
+        return false;
+    out->assign(gpd.raw.begin() + offset, gpd.raw.begin() + offset + length);
+    return true;
+}
+
+bool GpdReplaceBinarySetting(std::vector<u8>* raw, u32 settingId, const u8* data, u32 size, std::string* error)
+{
+    GpdFile gpd;
+    u32 offset, length;
+    if (raw->empty() || !GpdParse(&(*raw)[0], (u32)raw->size(), &gpd, error) ||
+        !BinarySettingSpan(gpd, settingId, &offset, &length, error))
+        return false;
+    if (length != size)
+    {
+        if (error) *error = "the setting has a different size";
+        return false;
+    }
+    memcpy(&(*raw)[offset], data, size);
+    return true;
+}

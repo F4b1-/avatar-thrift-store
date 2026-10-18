@@ -8,6 +8,7 @@
 #include "types.h"
 
 #include <string>
+#include <vector>
 
 enum ProfileKind
 {
@@ -39,3 +40,13 @@ bool ProfileSetOnlineXuid(u8* data, u32 size, u64 xuid, bool markLive, std::stri
 // returns for StfsComputeSignedHash's hash, at 0x004, and refuses (leaving the
 // data as it was) unless it verifies against its own certificate.
 bool ProfileApplyConsoleSignature(u8* data, u32 size, const u8* signature, std::string* error);
+
+// The avatar: the 1000-byte description in setting 0x63E80044 of the
+// profile's dashboard GPD (see sona.h). A profile whose avatar was never made
+// has no such setting, and both calls fail for it.
+bool ProfileReadAvatar(const u8* data, u32 size, std::vector<u8>* manifest, std::string* error);
+
+// Replaces the avatar in place, rehashes the package and its header and
+// checks the result from scratch, as ProfileSetOnlineXuid does. The console
+// signature is left as it was: sign afterwards with ProfileApplyConsoleSignature.
+bool ProfileWriteAvatar(u8* data, u32 size, const u8* manifest, std::string* error);
