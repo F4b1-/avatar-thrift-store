@@ -2,8 +2,9 @@
 //
 // "Add Items": browses the AvatarItems folder next to the app (folders as a
 // list, items as tiles with their previews, a search over all folder names)
-// and installs items for the shared online XUID (patched, then copied to the
-// hard disk's Content\0000000000000000\AAAAAAAA\00009000).
+// and installs items for the shared online XUID (patched, then copied to
+// Content\0000000000000000\AAAAAAAA\00009000 on the hard disk or a USB stick,
+// picked in the dialog; the app's own drive first).
 // "Activate Offline Profile": gives an offline profile that XUID, the way
 // 360mpGui's offline-to-online maker does, and re-signs it with this
 // console's own key. The README's "Key findings" describe the formats behind both.
@@ -25,6 +26,7 @@
 #include <stdio.h>
 #include <time.h>
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -500,7 +502,7 @@ class App
 public:
     App(Screen& screen) : m_screen(screen), m_screenId(kScreenMenu), m_overlay(kOverlayNone), m_work(kWorkNone),
         m_workShown(false), m_menuIndex(0), m_selected(0), m_scroll(0), m_folderIndexBuilt(false), m_keyRow(0),
-        m_keyColumn(0), m_resultIndex(0), m_resultScroll(0), m_profileIndex(0), m_profileScroll(0),
+        m_keyColumn(0), m_resultIndex(0), m_resultScroll(0), m_driveIndex(0), m_profileIndex(0), m_profileScroll(0),
         m_optionIndex(0), m_toastUntil(0), m_quit(false), m_dirty(true) {}
 
 
@@ -609,10 +611,16 @@ public:
             const Item& item = *SelectedItem();
             std::vector<std::string> lines(1, item.name);
             std::vector<std::string> options;
+            if (DriveRows())
+                options.push_back(DriveOption());
             options.push_back(item.installed ? "Add Item again" : "Add Item");
             options.push_back("Add Item and Remove");
             options.push_back("Cancel");
-            lines.push_back(item.installed ? "Already unlocked for every profile" : "New - unlocks it for every profile");
+            std::string drives;
+            for (size_t i = 0; i < item.installedOn.size(); i++)
+                drives += (i ? ", " : "") + item.installedOn[i];
+            lines.push_back(item.installed ? "Already unlocked for every profile (" + drives + ")"
+                                           : "New - unlocks it for every profile");
             DrawDialog(c, "Avatar item", lines, options, m_optionIndex, &item.icon);
         }
         else if (m_overlay == kOverlayAddAllActions)
@@ -620,6 +628,8 @@ public:
             std::vector<std::string> lines(1, m_folder.empty() ? "Every item in AvatarItems," : "Every item in this folder,");
             lines.push_back("subfolders included.");
             std::vector<std::string> options;
+            if (DriveRows())
+                options.push_back(DriveOption());
             options.push_back("Add all");
             options.push_back("Add all and Remove");
             options.push_back("Cancel");
@@ -918,8 +928,16 @@ private:
     // of Live profiles that turned up since added here.
     void OpenItems()
     {
+        // The drive picked before stays picked while it's there; the app's own
+        // drive comes first otherwise.
+        std::string picked = m_drives.empty() ? AppDrive().name : m_drives[m_driveIndex].name;
+        m_drives = AvailableDrives();
+        m_driveIndex = 0;
+        for (size_t i = 0; i < m_drives.size(); i++)
+            if (m_drives[i].name == picked)
+                m_driveIndex = (int)i;
         m_licensees = ItemLicensees();
-        InstallAllResult updated = UpdateInstalledItems(m_licensees);
+        InstallAllResult updated = UpdateInstalledItems(m_licensees, m_drives);
         xsdk_log_write("items: %d licensees, %d installed items updated, %d failed", (int)m_licensees.size(),
                        updated.installed, updated.failed);
         m_screenId = kScreenItems;
@@ -955,7 +973,7 @@ private:
             return false;
         Item& item = m_listing.items[tile];
         bool work = !item.detailsLoaded;
-        LoadItemDetails(&item, m_licensees);
+        LoadItemDetails(&item, m_licensees, m_drives);
         if (m_tileImages[tile].empty() && !item.icon.empty())
         {
             Canvas::ScaleImage(&item.icon[0], kIconSize, kIconSize, kTileImage, kTileImage, &m_tileImages[tile]);
@@ -1003,7 +1021,7 @@ private:
     void RescanFolder()
     {
         // Headers only; previews come with LoadVisibleDetails.
-        m_listing = ScanItemFolder(m_folder);
+        m_listing = ScanItemFolder(m_folder, m_drives);
         m_tileImages.assign(m_listing.items.size(), std::vector<u32>());
         int total = ListRows() + Tiles();
         if (m_selected >= total)
@@ -1098,7 +1116,7 @@ private:
         int rows = ListRows();
         if (m_selected == 0)
         {
-            m_optionIndex = 0;
+            m_optionIndex = DriveRows();   // on "Add all", below the drive
             m_overlay = kOverlayAddAllActions;
         }
         else if (m_selected < rows)
@@ -1114,7 +1132,7 @@ private:
                             std::vector<std::string>(1, "Can't be installed: " + SelectedItem()->error));
             else
             {
-                m_optionIndex = 0;
+                m_optionIndex = DriveRows();
                 m_overlay = kOverlayItemActions;
             }
         }
@@ -1219,6 +1237,18 @@ private:
         DrawFooter(c, std::string("A choose   B ") + (m_positions.empty() ? "back" : "up") + "   Y search   LB/RB page");
     }
 
+    // The install dialogs start with a row that picks the drive, when there's
+    // more than one (the hard disk and a USB stick).
+    int DriveRows() const { return m_drives.size() > 1 ? 1 : 0; }
+
+    std::string DriveOption() const { return "Install to:  < " + m_drives[m_driveIndex].name + " >"; }
+
+    // "Unlocked", or "Unlocked on USB 1" when there was a choice.
+    std::string UnlockedTitle(const std::string& suffix) const
+    {
+        return (DriveRows() ? "Unlocked on " + m_drives[m_driveIndex].name : std::string("Unlocked")) + suffix;
+    }
+
     void Install(bool removeSource)
     {
         const Item* item = SelectedItem();
@@ -1228,7 +1258,8 @@ private:
         std::string name = item->name;
         std::vector<u32> icon = item->icon;
         std::string error;
-        bool installed = InstallItemFile(item->path, removeSource, m_licensees, &error);
+        const Drive& drive = m_drives[m_driveIndex];
+        bool installed = InstallItemFile(item->path, removeSource, m_licensees, drive, &error);
         if (!installed)
         {
             if (removeSource)
@@ -1247,19 +1278,25 @@ private:
             ScrollToSelected();
         }
         else
-            m_listing.items[tile].installed = true;
-        ShowToast(removeSource ? "Unlocked, file removed" : "Unlocked", name, icon);
+        {
+            Item& installedItem = m_listing.items[tile];
+            installedItem.installed = true;
+            if (std::find(installedItem.installedOn.begin(), installedItem.installedOn.end(), drive.name) ==
+                installedItem.installedOn.end())
+                installedItem.installedOn.push_back(drive.name);
+        }
+        ShowToast(UnlockedTitle(removeSource ? ", file removed" : ""), name, icon);
     }
 
     void InstallAll(bool removeSource)
     {
-        InstallAllResult result = InstallAllItems(m_folder, removeSource, m_licensees);
+        InstallAllResult result = InstallAllItems(m_folder, removeSource, m_licensees, m_drives[m_driveIndex]);
         RescanFolder();
         char summary[96];
         if (result.failed == 0)
         {
             snprintf(summary, sizeof summary, "%d item%s", result.installed, result.installed == 1 ? "" : "s");
-            ShowToast(removeSource ? "Unlocked, files removed" : "Unlocked", summary, std::vector<u32>());
+            ShowToast(UnlockedTitle(removeSource ? ", files removed" : ""), summary, std::vector<u32>());
             return;
         }
         snprintf(summary, sizeof summary, "%d installed, %d failed.", result.installed, result.failed);
@@ -1647,7 +1684,9 @@ private:
                 m_overlay = kOverlayNone;
             return;
         }
-        int options = m_overlay == kOverlayConfirmActivate ? 2 : 3;
+        bool installing = m_overlay == kOverlayItemActions || m_overlay == kOverlayAddAllActions;
+        int driveRows = installing ? DriveRows() : 0;
+        int options = m_overlay == kOverlayConfirmActivate ? 2 : 3 + driveRows;
         if (pressed & kButtonUp)
             m_optionIndex = (m_optionIndex + options - 1) % options;
         if (pressed & kButtonDown)
@@ -1657,14 +1696,27 @@ private:
             m_overlay = kOverlayNone;
             return;
         }
+        // The drive row: left/right, or A, picks the next drive.
+        if (driveRows && m_optionIndex == 0)
+        {
+            int count = (int)m_drives.size();
+            if (pressed & kButtonLeft)
+                m_driveIndex = (m_driveIndex + count - 1) % count;
+            if (pressed & (kButtonRight | kButtonA))
+                m_driveIndex = (m_driveIndex + 1) % count;
+            return;
+        }
         if (!(pressed & kButtonA))
             return;
+        int action = m_optionIndex - driveRows;
         if (m_optionIndex == options - 1)   // Cancel
             m_overlay = kOverlayNone;
         else if (m_overlay == kOverlayItemActions && SelectedItem())
-            StartWork(m_optionIndex == 0 ? kWorkInstall : kWorkInstallAndRemove, "Installing " + SelectedItem()->name);
+            StartWork(action == 0 ? kWorkInstall : kWorkInstallAndRemove,
+                      "Installing " + SelectedItem()->name + " to " + m_drives[m_driveIndex].name);
         else if (m_overlay == kOverlayAddAllActions)
-            StartWork(m_optionIndex == 0 ? kWorkInstallAll : kWorkInstallAllAndRemove, "Installing all items...");
+            StartWork(action == 0 ? kWorkInstallAll : kWorkInstallAllAndRemove,
+                      "Installing all items to " + m_drives[m_driveIndex].name + "...");
 
         else
             StartWork(kWorkActivate, "Activating " + m_profiles[m_profileIndex].info.gamertag);
@@ -1697,6 +1749,9 @@ private:
     int m_resultScroll;
     ItemPosition m_searchOrigin;
     std::vector<ItemPosition> m_searchOriginPositions;
+
+    std::vector<Drive> m_drives;                // where items can be installed (and are looked for)
+    int m_driveIndex;                           // the one picked in the dialogs
 
     // Profiles
     std::vector<u64> m_licensees;               // XUIDs items get unlocked for

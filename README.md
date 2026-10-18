@@ -20,14 +20,15 @@ avatar items are included; bring your own (easy to find online).
 ## Getting started
 
 1. Download the zip from [Releases](../../releases) and copy the
-   `AvatarThriftStore` folder to the _internal hard drive_ of the console.
+   `AvatarThriftStore` folder to the hard drive (e.g. `Hdd1:\`) or a USB
+   stick. With both, you pick in the item dialog where unlocked items go.
 2. Put avatar item packages into `AvatarThriftStore\AvatarItems` (subfolders
    are fine, e.g. one per pack).
 3. Start `AvatarThriftStore.xex` from Aurora or FSD.
 4. Offline profiles: Sign the profile out, then activate it under
-   **Activate Offline Profile**. Xbox Live profiles need nothing.
-   Currently only profiles on the internal hard drive are listed.
-6. **Add Items**, pick items (or *Add all items*), then **Avatar Editor** to
+   **Activate Offline Profile**. Xbox Live profiles need nothing. Profiles on
+   the hard drive and on USB sticks are listed.
+5. **Add Items**, pick items (or *Add all items*), then **Avatar Editor** to
    put them on.
 
 Controls: D-pad/left stick, A choose, B back, Y search, LB/RB page, BACK quit.
@@ -107,7 +108,7 @@ future projects.
 
 ```powershell
 .\build_xbox.ps1                              # -> build\xbox\AvatarThriftStore.xex
-.\tools\package_release.ps1 -Version 0.1.0    # -> dist\AvatarThriftStore-v0.1.0.zip
+.\tools\package_release.ps1 -Version 0.2.0    # -> dist\AvatarThriftStore-v0.2.0.zip
 ```
 
 The title id is `41565453` ("AVTS"), so Aurora keeps the app's cover and

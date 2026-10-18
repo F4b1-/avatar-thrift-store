@@ -39,9 +39,9 @@ static std::string ContentFolder()
     return "Content\\0000000000000000\\" + AvatarItemContentSubfolder(kAvatarDefaultTitleId);
 }
 
-static std::string InstalledFolder()
+static std::string InstalledFolder(const Drive& drive)
 {
-    return HddDrive().root + "\\" + ContentFolder() + "\\";
+    return drive.root + "\\" + ContentFolder() + "\\";
 }
 
 // The online XUIDs an installed item is licensed to (none if it isn't installed).
@@ -168,7 +168,7 @@ static std::string Upper(const std::string& text)
 
 // The first stage, for listing: the header's start only (the display name ends
 // at 0x1711), no hash check, no preview. `installed` comes from whether a file
-// of the patched name is in the Content folder; LoadItemDetails checks it.
+// of the patched name is in a Content folder; LoadItemDetails checks it.
 static Item ReadItemHeader(const std::string& relative, const std::string& fileName,
                            const std::set<std::string>& installedNames)
 {
@@ -201,7 +201,7 @@ static Item ReadItemHeader(const std::string& relative, const std::string& fileN
     return item;
 }
 
-void LoadItemDetails(Item* item, const std::vector<u64>& licensees)
+void LoadItemDetails(Item* item, const std::vector<u64>& licensees, const std::vector<Drive>& drives)
 {
     if (item->detailsLoaded)
         return;
@@ -229,19 +229,26 @@ void LoadItemDetails(Item* item, const std::vector<u64>& licensees)
     if (item->icon.empty() && StfsThumbnail(&data[0], (u32)data.size(), &thumbnail, &thumbnailBytes))
         DecodeIcon(thumbnail, thumbnailBytes, &item->icon);
 
-    item->installed = item->installed && InstalledFor(InstalledFolder() + item->installedName, licensees);
+    if (item->installed)
+        for (size_t i = 0; i < drives.size(); i++)
+            if (InstalledFor(InstalledFolder(drives[i]) + item->installedName, licensees))
+                item->installedOn.push_back(drives[i].name);
+    item->installed = !item->installedOn.empty();
 }
 
-ItemListing ScanItemFolder(const std::string& relative)
+ItemListing ScanItemFolder(const std::string& relative, const std::vector<Drive>& drives)
 {
     ItemListing listing;
     std::string full = FullPath(relative);
 
-    // One listing of the Content folder instead of a lookup per item.
+    // One listing of each Content folder instead of lookups per item.
     std::set<std::string> installedNames;
-    std::vector<std::string> installed = ListFolder(InstalledFolder(), false);
-    for (size_t i = 0; i < installed.size(); i++)
-        installedNames.insert(Upper(installed[i]));
+    for (size_t d = 0; d < drives.size(); d++)
+    {
+        std::vector<std::string> installed = ListFolder(InstalledFolder(drives[d]), false);
+        for (size_t i = 0; i < installed.size(); i++)
+            installedNames.insert(Upper(installed[i]));
+    }
 
     std::vector<std::string> files = ListFolder(full, false);
     listing.items.reserve(files.size());
@@ -303,7 +310,8 @@ std::vector<std::string> SearchFolders(const std::vector<std::string>& index, co
     return matches;
 }
 
-bool InstallItemFile(const std::string& path, bool removeSource, const std::vector<u64>& licensees, std::string* error)
+bool InstallItemFile(const std::string& path, bool removeSource, const std::vector<u64>& licensees,
+                     const Drive& drive, std::string* error)
 {
     std::string source = FullPath(path);
     std::vector<u8> data;
@@ -317,17 +325,17 @@ bool InstallItemFile(const std::string& path, bool removeSource, const std::vect
 
     // XUIDs an installed copy already has (a profile that isn't around now) stay.
     AvatarPatchOptions options = PatchOptions(licensees);
-    std::vector<u64> others = InstalledLicensees(InstalledFolder() + AvatarItemPatchedFileName(&data[0], kAvatarDefaultTitleId));
+    std::vector<u64> others =
+        InstalledLicensees(InstalledFolder(drive) + AvatarItemPatchedFileName(&data[0], kAvatarDefaultTitleId));
     for (size_t i = 0; i < others.size(); i++)
         AddUnique(&options.extraXuids, others[i]);
     if (!AvatarItemPatch(&data[0], (u32)data.size(), options, error))
         return false;
 
-    const Drive& hdd = HddDrive();
-    std::string target = hdd.root + "\\" + ContentFolder() + "\\" + AvatarItemFileName(&data[0]);
-    if (!MakeDirs(hdd.root, ContentFolder()) || !WriteWholeFile(target, &data[0], (u32)data.size()))
+    std::string target = drive.root + "\\" + ContentFolder() + "\\" + AvatarItemFileName(&data[0]);
+    if (!MakeDirs(drive.root, ContentFolder()) || !WriteWholeFile(target, &data[0], (u32)data.size()))
     {
-        *error = "cannot write to the hard disk's Content folder";
+        *error = "cannot write to the Content folder on " + drive.name;
         return false;
     }
     if (removeSource && !DeleteFile(source))
@@ -346,57 +354,61 @@ static void AddFailure(InstallAllResult* result, const std::string& name, const 
 }
 
 static void InstallAllIn(const std::string& relative, bool removeSource, const std::vector<u64>& licensees,
-                         InstallAllResult* result)
+                         const Drive& drive, InstallAllResult* result)
 {
     std::string full = FullPath(relative);
     std::vector<std::string> files = ListFolder(full, false);
     for (size_t i = 0; i < files.size(); i++)
     {
         std::string error;
-        if (InstallItemFile(Join(relative, files[i]), removeSource, licensees, &error))
+        if (InstallItemFile(Join(relative, files[i]), removeSource, licensees, drive, &error))
             result->installed++;
         else
             AddFailure(result, files[i], error);
     }
     std::vector<std::string> folders = ListFolder(full, true);
     for (size_t i = 0; i < folders.size(); i++)
-        InstallAllIn(Join(relative, folders[i]), removeSource, licensees, result);
+        InstallAllIn(Join(relative, folders[i]), removeSource, licensees, drive, result);
 }
 
-InstallAllResult InstallAllItems(const std::string& relative, bool removeSource, const std::vector<u64>& licensees)
+InstallAllResult InstallAllItems(const std::string& relative, bool removeSource, const std::vector<u64>& licensees,
+                                 const Drive& drive)
 {
     InstallAllResult result;
     result.installed = 0;
     result.failed = 0;
-    InstallAllIn(relative, removeSource, licensees, &result);
+    InstallAllIn(relative, removeSource, licensees, drive, &result);
     return result;
 }
 
-InstallAllResult UpdateInstalledItems(const std::vector<u64>& licensees)
+InstallAllResult UpdateInstalledItems(const std::vector<u64>& licensees, const std::vector<Drive>& drives)
 {
     InstallAllResult result;
     result.installed = 0;
     result.failed = 0;
-    std::string folder = InstalledFolder();
-    std::vector<std::string> files = ListFolder(folder, false);
-    for (size_t i = 0; i < files.size(); i++)
+    for (size_t d = 0; d < drives.size(); d++)
     {
-        std::string path = folder + files[i];
-        if (InstalledFor(path, licensees))
-            continue;
-        std::vector<u8> data;
-        std::string error;
-        // Entry [1] stays as it is; what's missing goes into free entries.
-        AvatarPatchOptions options = PatchOptions(licensees);
-        options.setXuid = false;
-        if (!ReadWholeFile(path, &data) || data.empty())
-            AddFailure(&result, files[i], "cannot read the file");
-        else if (!AvatarItemPatch(&data[0], (u32)data.size(), options, &error))
-            AddFailure(&result, files[i], error);
-        else if (!WriteWholeFile(path, &data[0], (u32)data.size()))
-            AddFailure(&result, files[i], "cannot write the file");
-        else
-            result.installed++;
+        std::string folder = InstalledFolder(drives[d]);
+        std::vector<std::string> files = ListFolder(folder, false);
+        for (size_t i = 0; i < files.size(); i++)
+        {
+            std::string path = folder + files[i];
+            if (InstalledFor(path, licensees))
+                continue;
+            std::vector<u8> data;
+            std::string error;
+            // Entry [1] stays as it is; what's missing goes into free entries.
+            AvatarPatchOptions options = PatchOptions(licensees);
+            options.setXuid = false;
+            if (!ReadWholeFile(path, &data) || data.empty())
+                AddFailure(&result, files[i], "cannot read the file");
+            else if (!AvatarItemPatch(&data[0], (u32)data.size(), options, &error))
+                AddFailure(&result, files[i], error);
+            else if (!WriteWholeFile(path, &data[0], (u32)data.size()))
+                AddFailure(&result, files[i], "cannot write the file");
+            else
+                result.installed++;
+        }
     }
     return result;
 }

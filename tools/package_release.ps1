@@ -23,7 +23,8 @@ Homebrew for modded Xbox 360 consoles (RGH/JTAG; softmods untested) that
 unlocks avatar items for every profile on the console.
 
 Setup
-1. Copy the AvatarThriftStore folder to the console, e.g. to Hdd1:\.
+1. Copy the AvatarThriftStore folder to the hard drive (e.g. Hdd1:\) or a
+   USB stick. With both, you pick in the item dialog where unlocked items go.
 2. Put avatar item packages into AvatarThriftStore\AvatarItems (subfolders
    are fine, e.g. one per pack). No items come with the app.
 3. Start AvatarThriftStore.xex from Aurora/FSD.

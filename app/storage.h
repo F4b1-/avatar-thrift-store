@@ -14,10 +14,12 @@ struct Drive
     std::string root;   // device path without a trailing backslash
 };
 
-// The hard disk's data partition.
-const Drive& HddDrive();
+// The drive the app was started from: a USB stick, or else the hard disk's
+// data partition.
+const Drive& AppDrive();
 
-// The hard disk and every USB storage device that can be opened.
+// The hard disk, every USB storage device with a Content folder and the one the
+// app runs from: where profiles are looked for and items can be installed.
 std::vector<Drive> AvailableDrives();
 
 bool PathExists(const std::string& path);
