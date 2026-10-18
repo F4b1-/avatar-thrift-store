@@ -101,9 +101,8 @@ tests/   unit tests for core/, run on the PC
 
 Unlocking an item, end to end: `main.cpp` takes the button press,
 `items.cpp` reads the package through `storage.cpp`,
-`core/avatar_item.cpp` patches it and `core/stfs.cpp` rehashes it, and
-`storage.cpp` writes it to the folder from [How it works](#how-it-works-for-those-interested)
-and reads it back to check.
+`core/avatar_item.cpp` patches it, `core/stfs.cpp` rehashes it, and
+`storage.cpp` writes it to the final `Content` folder.
 
 ## Key findings
 
