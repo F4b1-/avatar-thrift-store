@@ -1,0 +1,36 @@
+# The PC part on every push and pull request: core, avtool and the unit tests,
+# with MSVC (as build_pc.ps1 builds them) and with GCC on Linux, which catches
+# code that only builds on Windows. The console app needs xsdk's toolchain and
+# isn't built here.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows (MSVC)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test
+        shell: pwsh
+        run: .\build_pc.ps1
+
+  linux:
+    name: Linux (GCC)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build/pc -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-Wall -Wextra"
+      - name: Build
+        run: cmake --build build/pc --parallel
+      - name: Test
+        run: ctest --test-dir build/pc --output-on-failure

@@ -25,7 +25,16 @@
 #include "../../core/stfs.h"
 #include "../../core/stfs_package.h"
 
+#ifdef _WIN32
 #include <direct.h>
+#define MKDIR(path) _mkdir(path)
+#define STRICMP(a, b) _stricmp(a, b)
+#else
+#include <strings.h>
+#include <sys/stat.h>
+#define MKDIR(path) mkdir(path, 0777)
+#define STRICMP(a, b) strcasecmp(a, b)
+#endif
 #include <stdio.h>
 #include <string.h>
 #include <vector>
@@ -107,7 +116,7 @@ static void MakeDirs(const std::string& path)
 {
     for (size_t i = 1; i <= path.size(); i++)
         if (i == path.size() || path[i] == '\\' || path[i] == '/')
-            _mkdir(path.substr(0, i).c_str());
+            MKDIR(path.substr(0, i).c_str());
 }
 
 static bool OpenPackage(const char* path, std::vector<u8>* data, StfsPackage* pkg)
@@ -442,7 +451,7 @@ static int CmdSetXuid(int argc, char** argv)
         fprintf(stderr, "set-xuid needs --out and a profile\n");
         return 2;
     }
-    if (_stricmp(inPath, outPath) == 0)
+    if (STRICMP(inPath, outPath) == 0)
     {
         fprintf(stderr, "--out must differ from the input; the original profile is never overwritten\n");
         return 2;
