@@ -24,13 +24,16 @@ add_executable(AvatarThriftStore
     items.cpp
     profiles.cpp
     screenshot.cpp
+    sonas.cpp
     storage.cpp
     stb_image_impl.cpp
     ../core/account.cpp
     ../core/avatar_item.cpp
+    ../core/gpd.cpp
     ../core/profile.cpp
     ../core/rsa.cpp
     ../core/sha1.cpp
+    ../core/sona.cpp
     ../core/stfs.cpp
     ../core/stfs_package.cpp
     ${import_sources})

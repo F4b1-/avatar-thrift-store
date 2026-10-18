@@ -412,3 +412,41 @@ InstallAllResult UpdateInstalledItems(const std::vector<u64>& licensees, const s
     }
     return result;
 }
+
+static void IndexSourcesIn(const std::string& relative, std::map<std::string, std::string>* index)
+{
+    std::string full = FullPath(relative);
+    std::vector<std::string> files = ListFolder(full, false);
+    for (size_t i = 0; i < files.size(); i++)
+    {
+        std::string path = Join(relative, files[i]);
+        std::vector<u8> header;
+        StfsHeader h;
+        if (!ReadFilePrefix(FullPath(path), kItemHeaderBytes, &header) || header.size() < kAvatarOffsetAssetId + 16 ||
+            !StfsParseHeader(&header[0], (u32)header.size(), &h, NULL) || h.contentType != kContentTypeAvatarItem)
+            continue;
+        index->insert(std::make_pair(AvatarItemFileName(&header[0]), path));
+    }
+    std::vector<std::string> folders = ListFolder(full, true);
+    for (size_t i = 0; i < folders.size(); i++)
+        IndexSourcesIn(Join(relative, folders[i]), index);
+}
+
+std::map<std::string, std::string> IndexItemSources()
+{
+    std::map<std::string, std::string> index;
+    IndexSourcesIn("", &index);
+    return index;
+}
+
+std::set<std::string> InstalledItemNames(const std::vector<Drive>& drives)
+{
+    std::set<std::string> names;
+    for (size_t d = 0; d < drives.size(); d++)
+    {
+        std::vector<std::string> installed = ListFolder(InstalledFolder(drives[d]), false);
+        for (size_t i = 0; i < installed.size(); i++)
+            names.insert(Upper(installed[i]));
+    }
+    return names;
+}

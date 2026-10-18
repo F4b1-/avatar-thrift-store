@@ -8,6 +8,9 @@
 // "Activate Offline Profile": gives an offline profile that XUID, the way
 // 360mpGui's offline-to-online maker does, and re-signs it with this
 // console's own key. The README's "Key findings" describe the formats behind both.
+// "Profiles" also moves avatars to and from 360sona: a profile's avatar saved
+// as a sona code in the Sonas folder, or a sona code worn by a profile, with
+// the items it needs unlocked from AvatarItems on the way (sonas.h).
 //
 // Controls: D-pad/left stick to move, LB/RB a page, A to choose, B to go back,
 // Y to search, BACK to quit.
@@ -16,6 +19,7 @@
 #include "items.h"
 #include "profiles.h"
 #include "screenshot.h"
+#include "sonas.h"
 #include "../core/account.h"
 
 #include "xsdk/kernel.h"
@@ -460,6 +464,7 @@ enum ScreenId
     kScreenItems,
     kScreenSearchResults,
     kScreenProfiles,
+    kScreenSonaFiles,
 };
 
 enum Overlay
@@ -468,6 +473,8 @@ enum Overlay
     kOverlayItemActions,
     kOverlayAddAllActions,
     kOverlayConfirmActivate,
+    kOverlayProfileActions,
+    kOverlayConfirmWear,
     kOverlayMessage,
     kOverlayWorking,
     kOverlayKeyboard,
@@ -486,6 +493,19 @@ enum PendingWork
     kWorkScanProfiles,
     kWorkActivate,
     kWorkScreenshot,
+    kWorkExportSona,
+    kWorkListSonas,
+    kWorkPlanSona,
+    kWorkWearSona,
+};
+
+// What the profile dialog offers.
+enum ProfileAction
+{
+    kActionActivate,
+    kActionSaveSona,
+    kActionWearSona,
+    kActionCancel,
 };
 
 // Where the item screen was, to come back to it.
@@ -503,7 +523,7 @@ public:
     App(Screen& screen) : m_screen(screen), m_screenId(kScreenMenu), m_overlay(kOverlayNone), m_work(kWorkNone),
         m_workShown(false), m_menuIndex(0), m_selected(0), m_scroll(0), m_folderIndexBuilt(false), m_keyRow(0),
         m_keyColumn(0), m_resultIndex(0), m_resultScroll(0), m_driveIndex(0), m_profileIndex(0), m_profileScroll(0),
-        m_optionIndex(0), m_toastUntil(0), m_quit(false), m_dirty(true) {}
+        m_sonaIndex(0), m_sonaScroll(0), m_optionIndex(0), m_toastUntil(0), m_quit(false), m_dirty(true) {}
 
 
     bool Quit() const { return m_quit; }
@@ -543,6 +563,8 @@ public:
             HandleItems(pressed);
         else if (m_screenId == kScreenSearchResults)
             HandleResults(pressed);
+        else if (m_screenId == kScreenSonaFiles)
+            HandleSonaFiles(pressed);
         else
             HandleProfiles(pressed);
         m_dirty = true;
@@ -588,6 +610,21 @@ public:
         case kWorkScreenshot:
             SaveTakenScreenshot();
             break;
+        case kWorkExportSona:
+            SaveSona();
+            break;
+        case kWorkListSonas:
+            m_sonaFiles = ListSonaFiles();
+            m_sonaIndex = 0;
+            m_sonaScroll = 0;
+            m_screenId = kScreenSonaFiles;
+            break;
+        case kWorkPlanSona:
+            PlanWear();
+            break;
+        case kWorkWearSona:
+            Wear();
+            break;
         case kWorkNone:
             break;
         }
@@ -603,6 +640,8 @@ public:
             DrawItems(c);
         else if (m_screenId == kScreenSearchResults)
             DrawResults(c);
+        else if (m_screenId == kScreenSonaFiles)
+            DrawSonaFiles(c);
         else
             DrawProfiles(c);
 
@@ -650,6 +689,47 @@ public:
             options.push_back("Activate " + p.info.gamertag);
             options.push_back("Cancel");
             DrawDialog(c, "Activate offline profile", lines, options, m_optionIndex);
+        }
+        else if (m_overlay == kOverlayProfileActions && m_profileIndex < (int)m_profiles.size())
+        {
+            const ProfileEntry& p = m_profiles[m_profileIndex];
+            u32 color;
+            std::vector<std::string> lines(1, StateText(p, &color));
+            if (p.signedIn)
+                lines.push_back("Signed in: sign out to save or wear a sona.");
+            std::vector<ProfileAction> actions = ProfileActions(p);
+            std::vector<std::string> options;
+            for (size_t i = 0; i < actions.size(); i++)
+                options.push_back(ActionName(actions[i]));
+            DrawDialog(c, p.info.gamertag, lines, options, m_optionIndex);
+        }
+        else if (m_overlay == kOverlayConfirmWear && m_profileIndex < (int)m_profiles.size())
+        {
+            const ProfileEntry& p = m_profiles[m_profileIndex];
+            std::vector<std::string> lines;
+            char count[96];
+            snprintf(count, sizeof count, "%d built in, %d already unlocked", m_plan.builtIn, m_plan.unlocked);
+            lines.push_back(m_plan.file);
+            lines.push_back(count);
+            if (!m_plan.toUnlock.empty())
+            {
+                snprintf(count, sizeof count, "%d to unlock from AvatarItems to %s", (int)m_plan.toUnlock.size(),
+                         SonaDrive().name.c_str());
+                lines.push_back(count);
+            }
+            if (!m_plan.missing.empty())
+            {
+                snprintf(count, sizeof count, "%d not found here: they show only if", (int)m_plan.missing.size());
+                lines.push_back(count);
+                lines.push_back("the console already has them");
+            }
+            if (p.info.kind == kProfileOffline && (m_plan.unlocked > 0 || !m_plan.toUnlock.empty()))
+                lines.push_back("Activate the profile too, to see unlocked items.");
+            lines.push_back("A backup is saved to Backups first.");
+            std::vector<std::string> options;
+            options.push_back("Put it on " + p.info.gamertag);
+            options.push_back("Cancel");
+            DrawDialog(c, "Wear a sona", lines, options, m_optionIndex);
         }
 
         else if (m_overlay == kOverlayMessage)
@@ -756,11 +836,11 @@ private:
     void DrawMenu(Canvas& c)
     {
         DrawHeader(c, "");
-        static const char* kOptions[kMenuCards] = { "Add Items", "Activate Offline Profile", "Avatar Editor" };
+        static const char* kOptions[kMenuCards] = { "Add Items", "Profiles", "Avatar Editor" };
         static const char* kHelp[kMenuCards] =
         {
             "Browse and unlock items in the AvatarItems folder",
-            "Get an offline profile ready to wear the items.",
+            "Activate offline profiles, move avatars to and from 360sona",
             "Go straight to the dashboard's Avatar Editor",
         };
         // Not confirmed on every console yet.
@@ -1583,10 +1663,10 @@ private:
             return;
         const ProfileEntry& p = m_profiles[m_profileIndex];
         u32 color;
-        if (p.error.empty() && p.info.kind == kProfileOffline && !p.signedIn)
+        if (p.error.empty())
         {
             m_optionIndex = 0;
-            m_overlay = kOverlayConfirmActivate;
+            m_overlay = kOverlayProfileActions;
         }
         else
             ShowMessage(p.info.gamertag, std::vector<std::string>(1, StateText(p, &color)));
@@ -1653,6 +1733,162 @@ private:
         ShowMessage("Done", lines);
     }
 
+    // --- 360sona
+
+    static std::vector<ProfileAction> ProfileActions(const ProfileEntry& p)
+    {
+        std::vector<ProfileAction> actions;
+        if (p.info.kind == kProfileOffline && !p.signedIn)
+            actions.push_back(kActionActivate);
+        actions.push_back(kActionSaveSona);
+        actions.push_back(kActionWearSona);
+        actions.push_back(kActionCancel);
+        return actions;
+    }
+
+    static const char* ActionName(ProfileAction action)
+    {
+        switch (action)
+        {
+        case kActionActivate: return "Activate for items";
+        case kActionSaveSona: return "Save avatar to Sonas (for 360sona)";
+        case kActionWearSona: return "Wear a sona from Sonas";
+        default:              return "Cancel";
+        }
+    }
+
+    void HandleProfileAction(ProfileAction action)
+    {
+        const ProfileEntry& p = m_profiles[m_profileIndex];
+        m_overlay = kOverlayNone;
+        if (action == kActionActivate)
+        {
+            m_optionIndex = 0;
+            m_overlay = kOverlayConfirmActivate;
+        }
+        else if (action == kActionSaveSona)
+            StartWork(kWorkExportSona, "Saving " + p.info.gamertag + "'s avatar...");
+        else if (action == kActionWearSona)
+            StartWork(kWorkListSonas, "Reading the Sonas folder...");
+    }
+
+    // Items for a sona go to the drive the profile is on, else the app's own.
+    const Drive& SonaDrive() const
+    {
+        const std::string& name = m_profiles[m_profileIndex].drive;
+        for (size_t i = 0; i < m_drives.size(); i++)
+            if (m_drives[i].name == name)
+                return m_drives[i];
+        return AppDrive();
+    }
+
+    void SaveSona()
+    {
+        const ProfileEntry& p = m_profiles[m_profileIndex];
+        std::string path;
+        std::string error;
+        if (!ExportSona(p, &path, &error))
+        {
+            xsdk_log_write("sona save %s: %s", p.info.gamertag.c_str(), error.c_str());
+            ShowMessage("Not saved", std::vector<std::string>(1, p.info.gamertag + ": " + error));
+            return;
+        }
+        size_t slash = path.rfind('\\');
+        std::vector<std::string> lines(1, "Saved as Sonas\\" + (slash == std::string::npos ? path : path.substr(slash + 1)));
+        lines.push_back("On 360sona.com: My Sonas, Import / Export,");
+        lines.push_back("Open a .txt (this file), then Choose a slot.");
+        ShowMessage("Avatar saved", lines);
+    }
+
+    void HandleSonaFiles(u16 pressed)
+    {
+        if (pressed & kButtonB)
+        {
+            m_screenId = kScreenProfiles;
+            return;
+        }
+        int count = (int)m_sonaFiles.size();
+        if (count == 0)
+            return;
+        int visible = (kViewBottom - kListTop) / kRowHeight;
+        if (pressed & kButtonUp)
+            m_sonaIndex = (m_sonaIndex + count - 1) % count;
+        if (pressed & kButtonDown)
+            m_sonaIndex = (m_sonaIndex + 1) % count;
+        m_sonaScroll = ScrollToShow(m_sonaIndex * kRowHeight, kRowHeight, m_sonaScroll, visible * kRowHeight);
+        if (pressed & kButtonA)
+            StartWork(kWorkPlanSona, "Reading " + m_sonaFiles[m_sonaIndex] + "...");
+    }
+
+    void DrawSonaFiles(Canvas& c)
+    {
+        DrawHeader(c, "Wear a sona: " + m_profiles[m_profileIndex].info.gamertag);
+        if (m_sonaFiles.empty() && m_overlay != kOverlayWorking)
+        {
+            c.DrawText(kMarginX, kListTop, "No sona codes in the Sonas folder yet.", kColorText);
+            c.DrawText(kMarginX, kListTop + 48, "On 360sona.com: My Sonas, Import / Export, Save as .txt,", kColorDim);
+            c.DrawText(kMarginX, kListTop + 88, "then copy the file into AvatarThriftStore\\Sonas.", kColorDim);
+        }
+        int textX = kMarginX + 64 + 24;
+        int textW = c.Width() - kMarginX - 72 - textX;
+        c.SetClip(0, kListTop - 12, c.Width(), kViewBottom - kListTop + 12);
+        for (int i = 0; i < (int)m_sonaFiles.size(); i++)
+        {
+            int y = kListTop + i * kRowHeight - m_sonaScroll;
+            if (y + kRowHeight < kListTop - 12 || y > kViewBottom)
+                continue;
+            const std::string& name = m_sonaFiles[i];
+            DrawRowCard(c, kMarginX - 16, y, c.Width() - 2 * kMarginX + 32, i == m_sonaIndex, true);
+            c.FillCircle(kMarginX + 32, y + 31, 30, kBrights[NameHash(name) % 5]);
+            std::string initial(1, name.empty() ? '?' : (char)toupper((unsigned char)name[0]));
+            DrawBoldText(c, kMarginX + 24, y + 15, initial, kColorWhite);
+            DrawBoldText(c, textX, y - 2, name, kColorText, 1, textW);
+            c.DrawText(textX, y + 32, "sona code in Sonas", kColorDim, 1, textW);
+        }
+        c.ResetClip();
+        DrawScrollBar(c, (int)m_sonaFiles.size() * kRowHeight, m_sonaScroll);
+        DrawFooter(c, "A choose   B back");
+    }
+
+    void PlanWear()
+    {
+        m_drives = AvailableDrives();
+        m_licensees = ItemLicensees();
+        std::string error;
+        if (!PlanSona(m_sonaFiles[m_sonaIndex], m_drives, &m_plan, &error))
+        {
+            ShowMessage("Not a sona", std::vector<std::string>(1, m_sonaFiles[m_sonaIndex] + ": " + error));
+            return;
+        }
+        m_optionIndex = 0;
+        m_overlay = kOverlayConfirmWear;
+    }
+
+    void Wear()
+    {
+        const ProfileEntry& p = m_profiles[m_profileIndex];
+        std::string backup;
+        std::string error;
+        int failed = 0;
+        if (!WearSona(p, m_plan, m_licensees, m_drives, SonaDrive(), &backup, &failed, &error))
+        {
+            xsdk_log_write("sona wear %s: %s", p.info.gamertag.c_str(), error.c_str());
+            ShowMessage("Not worn", std::vector<std::string>(1, p.info.gamertag + ": " + error));
+            return;
+        }
+        m_screenId = kScreenProfiles;
+        std::vector<std::string> lines(1, p.info.gamertag + " now wears " + m_plan.file + ".");
+        if (failed > 0)
+        {
+            char text[64];
+            snprintf(text, sizeof text, "%d item%s could not be unlocked (see the log).", failed, failed == 1 ? "" : "s");
+            lines.push_back(text);
+        }
+        lines.push_back("Backup: " + backup);
+        lines.push_back("Sign in and open the Avatar Editor to see it.");
+        ShowMessage("Done", lines);
+    }
+
     void SaveTakenScreenshot()
     {
         const Canvas& c = m_screen.canvas();
@@ -1681,6 +1917,26 @@ private:
         if (m_overlay == kOverlayMessage)
         {
             if (pressed & (kButtonA | kButtonB))
+                m_overlay = kOverlayNone;
+            return;
+        }
+        if (m_overlay == kOverlayProfileActions || m_overlay == kOverlayConfirmWear)
+        {
+            int options = m_overlay == kOverlayConfirmWear ? 2 :
+                          (int)ProfileActions(m_profiles[m_profileIndex]).size();
+            if (pressed & kButtonUp)
+                m_optionIndex = (m_optionIndex + options - 1) % options;
+            if (pressed & kButtonDown)
+                m_optionIndex = (m_optionIndex + 1) % options;
+            if (pressed & kButtonB)
+                m_overlay = kOverlayNone;
+            if (!(pressed & kButtonA))
+                return;
+            if (m_overlay == kOverlayProfileActions)
+                HandleProfileAction(ProfileActions(m_profiles[m_profileIndex])[m_optionIndex]);
+            else if (m_optionIndex == 0)
+                StartWork(kWorkWearSona, "Dressing " + m_profiles[m_profileIndex].info.gamertag + "...");
+            else
                 m_overlay = kOverlayNone;
             return;
         }
@@ -1758,6 +2014,12 @@ private:
     std::vector<ProfileEntry> m_profiles;
     int m_profileIndex;
     int m_profileScroll;
+
+    // 360sona
+    std::vector<std::string> m_sonaFiles;
+    int m_sonaIndex;
+    int m_sonaScroll;
+    SonaPlan m_plan;
 
     int m_optionIndex;
     std::string m_messageTitle;

@@ -238,6 +238,53 @@ static std::string BackupPath(const ProfileEntry& entry)
     }
 }
 
+bool IsProfileSignedIn(const ProfileInfo& info)
+{
+    return IsSignedIn(info.offlineXuid, info.gamertag);
+}
+
+bool BackupProfile(const ProfileEntry& entry, const std::vector<u8>& data, std::string* backupPath, std::string* error)
+{
+    *backupPath = BackupPath(entry);
+    if (data.empty() || !MakeDirs("game:", "Backups") || !WriteWholeFile(*backupPath, &data[0], (u32)data.size()))
+    {
+        *error = "cannot write the backup, nothing was changed";
+        return false;
+    }
+    return true;
+}
+
+bool SignProfile(std::vector<u8>* data, std::string* error)
+{
+    u8 hash[20];
+    StfsComputeSignedHash(&(*data)[0], hash);
+    // The kernel writes certificate and signature here; keep it 8-byte aligned.
+    static u64 signature[(kStfsConsoleSignatureSize + 7) / 8];
+    memset(signature, 0, sizeof signature);
+    // What the return value means isn't confirmed on hardware, so it only goes
+    // to the log; whether the signature verifies is what counts.
+    u32 result = XeKeysConsolePrivateKeySign(hash, (u8*)signature);
+    const u8* s = (const u8*)signature;
+    bool empty = true;
+    for (u32 i = 0; i < kStfsConsoleSignatureSize && empty; i++)
+        empty = s[i] == 0;
+    xsdk_log_write("sign: XeKeysConsolePrivateKeySign returned 0x%08X; cert %02X%02X%02X%02X, signature %02X%02X%02X%02X",
+                   (unsigned)result, s[0], s[1], s[2], s[3], s[0x1A8], s[0x1A9], s[0x1AA], s[0x1AB]);
+    if (empty)
+    {
+        char code[16];
+        snprintf(code, sizeof code, "0x%08X", (unsigned)result);
+        *error = std::string("the console returned no signature (") + code + "), nothing was changed";
+        return false;
+    }
+    if (!ProfileApplyConsoleSignature(&(*data)[0], (u32)data->size(), (const u8*)signature, error))
+    {
+        *error += ", nothing was changed";
+        return false;
+    }
+    return true;
+}
+
 bool ActivateProfile(const ProfileEntry& entry, std::string* backupPath, std::string* error)
 {
     // Read it again: the list may be older than the file.
@@ -260,42 +307,11 @@ bool ActivateProfile(const ProfileEntry& entry, std::string* backupPath, std::st
         return false;
     }
 
-    *backupPath = BackupPath(entry);
-    if (!MakeDirs("game:", "Backups") || !WriteWholeFile(*backupPath, &data[0], (u32)data.size()))
-    {
-        *error = "cannot write the backup, nothing was changed";
-        return false;
-    }
-
-    if (!ProfileSetOnlineXuid(&data[0], (u32)data.size(), kSharedOnlineXuid, true, error))
+    if (!BackupProfile(entry, data, backupPath, error))
         return false;
 
-    u8 hash[20];
-    StfsComputeSignedHash(&data[0], hash);
-    // The kernel writes certificate and signature here; keep it 8-byte aligned.
-    static u64 signature[(kStfsConsoleSignatureSize + 7) / 8];
-    memset(signature, 0, sizeof signature);
-    // What the return value means isn't confirmed on hardware, so it only goes
-    // to the log; whether the signature verifies is what counts.
-    u32 result = XeKeysConsolePrivateKeySign(hash, (u8*)signature);
-    const u8* s = (const u8*)signature;
-    bool empty = true;
-    for (u32 i = 0; i < kStfsConsoleSignatureSize && empty; i++)
-        empty = s[i] == 0;
-    xsdk_log_write("activate: XeKeysConsolePrivateKeySign returned 0x%08X; cert %02X%02X%02X%02X, signature %02X%02X%02X%02X",
-                   (unsigned)result, s[0], s[1], s[2], s[3], s[0x1A8], s[0x1A9], s[0x1AA], s[0x1AB]);
-    if (empty)
-    {
-        char code[16];
-        snprintf(code, sizeof code, "0x%08X", (unsigned)result);
-        *error = std::string("the console returned no signature (") + code + "), nothing was changed";
+    if (!ProfileSetOnlineXuid(&data[0], (u32)data.size(), kSharedOnlineXuid, true, error) || !SignProfile(&data, error))
         return false;
-    }
-    if (!ProfileApplyConsoleSignature(&data[0], (u32)data.size(), (const u8*)signature, error))
-    {
-        *error += ", nothing was changed";
-        return false;
-    }
 
     if (!WriteWholeFile(entry.path, &data[0], (u32)data.size()))
     {

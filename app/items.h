@@ -9,6 +9,8 @@
 #include "storage.h"
 #include "../core/types.h"
 
+#include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -84,3 +86,10 @@ InstallAllResult InstallAllItems(const std::string& relative, bool removeSource,
 // drives, so profiles found later get them too, even when the source files are
 // gone. `installed` counts the items that were changed.
 InstallAllResult UpdateInstalledItems(const std::vector<u64>& licensees, const std::vector<Drive>& drives);
+
+// Every item package below AvatarItems, by its asset id (32 uppercase hex
+// digits) -> its path below AvatarItems. Only the start of each header is read.
+std::map<std::string, std::string> IndexItemSources();
+
+// The file names (asset ids, upper case) of the unlocked items on `drives`.
+std::set<std::string> InstalledItemNames(const std::vector<Drive>& drives);

@@ -35,3 +35,13 @@ u32 LaunchAvatarEditor(int user);
 // game:\Backups first; nothing is written unless the console's signature
 // verifies. `backupPath` names the copy.
 bool ActivateProfile(const ProfileEntry& entry, std::string* backupPath, std::string* error);
+
+// True if the profile is signed in now (its file is then held by the system).
+bool IsProfileSignedIn(const ProfileInfo& info);
+
+// Copies the profile's current contents to game:\Backups.
+bool BackupProfile(const ProfileEntry& entry, const std::vector<u8>& data, std::string* backupPath, std::string* error);
+
+// Signs a changed profile with this console's own key. False, and `data`
+// unchanged, unless the signature verifies.
+bool SignProfile(std::vector<u8>* data, std::string* error);
