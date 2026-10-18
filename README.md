@@ -35,12 +35,81 @@ Controls: D-pad/left stick, A open/unlock, B back, Y search, LB/RB page, BACK qu
 Pull both triggers for a screenshot (PNG in `AvatarThriftStore\Screenshots`).
 Items only show for an avatar of their gender.
 
+## How it works (for those interested)
+
+- **One shared XUID for offline profiles.** Activating an offline profile
+  gives it the online XUID **`00090000AAAAAAAA`**. Every activated profile
+  gets the same one, so to the avatar editor they all look like the same
+  owner. Xbox Live profiles keep their own online XUID.
+- **One folder for unlocked items.** Unlocking patches a copy of the item
+  and licenses it to the shared XUID and to the XUID of every
+  Xbox Live profile found on the console. The copy goes to the shared content folder (which every profile can read):
+
+  ```
+  Content\0000000000000000\AAAAAAAA\00009000\<asset id>
+          shared profile   title id content type (avatar item)
+  ```
+
+  On the hard drive that is
+  `Hdd1:\Content\0000000000000000\AAAAAAAA\00009000\` (kernel path
+  `\Device\Harddisk0\Partition1\Content\...`); on a USB stick it is
+  `Usb0:\Content\0000000000000000\AAAAAAAA\00009000\` (`\Device\Mass0\...`).
+  The file is named after the item's asset id (16 bytes, as 32 hex digits),
+  whose last 4 bytes the patch sets to the title id, so every name ends in
+  `AAAAAAAA`. The original file name isn't kept.
+
+So an item unlocked once works for every activated offline profile at once,
+and for each Xbox Live profile the app knew about when it was unlocked;
+profiles found later are added the next time **Unlock Items** opens.
+
+## Code layout
+
+```
+core/    the file formats, plain C++ that runs on the PC and the console
+app/     the console app (xsdk)
+tools/   avtool, a PC command-line tool, and generator scripts
+tests/   unit tests for core/, run on the PC
+```
+
+- **`core/`** never opens a file or calls the console. It is handed a
+  package's contents as a buffer and changes them there; reading and writing
+  the files is up to the app and avtool. Numbers are read and written one
+  byte at a time in the console's big-endian order, so the results are the
+  same on a PC (x86) and on the console (PowerPC).
+  - `stfs`: the package header (`LIVE` items, `CON` profiles), with title id,
+    license entries and header hash; `stfs_package`: the files inside a
+    package, replaced in place and rehashed.
+  - `avatar_item`: unlocking an item (title id, licensees, rehash).
+  - `account`, `profile`: a profile's encrypted `Account` file and the
+    profile package (shared XUID, console signature); `gpd`: the profile's
+    settings and award databases.
+  - `sha1`, `rsa`: hashing, and checking signatures (signing is left to the
+    console's own key).
+- **`app/`** is the console app.
+  - `main.cpp`: the app itself, one `App` class with the screens (menu,
+    items, search, profiles), dialogs, input and drawing.
+  - `items`: scanning `AvatarItems`, previews, what is unlocked where, and
+    unlocking; `profiles`: finding and activating profiles; `storage`: files
+    and drives (hard drive, USB sticks).
+  - `gfx`: a CPU-drawn canvas and its copy to the screen; `screenshot`: PNGs.
+  - `imports.txt`, `kernel_extra.h`: the kernel and XAM functions the app
+    calls beyond xsdk (console signing, the avatar editor).
+  - `font.h` and `menu_art.h` are generated (by `tools/gen_font.ps1` and
+    `tools/gen_menu_art.ps1`); don't edit them by hand.
+- **`tools/avtool`** runs the `core/` steps on files on a PC, for testing on
+  copies without a console; **`tests/`** covers `core/`.
+
+Unlocking an item, end to end: `main.cpp` takes the button press,
+`items.cpp` reads the package through `storage.cpp`,
+`core/avatar_item.cpp` patches it and `core/stfs.cpp` rehashes it, and
+`storage.cpp` writes it to the folder from [How it works](#how-it-works-for-those-interested)
+and reads it back to check.
+
 ## Key findings
 
 Some of the features of this app came from having AI reverse engineer outdated windows executables
-the community used in the past. These programms have, for the most part, no publicly available source code.
-The key findings are documented here for use in 
-future projects.
+the community used in the past. These programs have, for the most part, no publicly available source code.
+The key findings are documented here for use in future projects.
 
 ### Avatar items
 

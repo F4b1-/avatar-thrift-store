@@ -7,8 +7,8 @@
 //   3. recompute the header SHA-1 at 0x32C
 //
 // Further XUIDs (profiles that have their own online XUID) go into the free
-// entries from [2] on, with entry [1]'s bits and flags. Not the patcher's method:
-// whether the console accepts entries past [1] is still to be tested.
+// entries from [2] on, with entry [1]'s bits and flags. Not the patcher's method,
+// but the console accepts them (README, "Key findings: Avatar items").
 //
 // The package signature is not touched (modded consoles' kernels don't check it).
 // The patched file is named after its (new) asset id and goes to
