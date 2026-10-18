@@ -24,17 +24,17 @@ unlocks avatar items for every profile on the console.
 
 Setup
 1. Copy the AvatarThriftStore folder to the hard drive (e.g. Hdd1:\) or a
-   USB stick. With both, you pick in the item dialog where unlocked items go.
+   USB stick. With both, you pick in the unlock dialog where unlocked items go.
 2. Put avatar item packages into AvatarThriftStore\AvatarItems (subfolders
    are fine, e.g. one per pack). No items come with the app.
 3. Start AvatarThriftStore.xex from Aurora/FSD.
 
-Add Items                 unlock items for every Xbox Live profile and
+Unlock Items              unlock items for every Xbox Live profile and
                           every profile activated here.
-Activate Offline Profile  (beta) lets an offline profile wear the items.
+Activate Offline Profile  lets an offline profile wear unlocked items.
                           Sign the profile out first; a backup goes to
                           AvatarThriftStore\Backups.
-Avatar Editor             (beta) opens the dashboard's avatar editor.
+Avatar Editor             opens the dashboard's avatar editor.
 
 Pull both triggers for a screenshot: a PNG in AvatarThriftStore\Screenshots.
 The app writes a log next to itself (AvatarThriftStore.log).

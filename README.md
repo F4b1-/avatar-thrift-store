@@ -8,11 +8,11 @@ no Microsoft SDK required.
 
 ![Browsing Fable items in Avatar Thrift Store](screenshots/AvatarThriftStore_004.png)
 
-- **Add Items**: browse a folder of item packages (with previews and search)
+- **Unlock Items**: browse a folder of item packages (with previews and search)
   and unlock them for every profile on the console.
-- **Activate Offline Profile** *(beta)*: lets an offline profile wear unlocked
+- **Activate Offline Profile**: lets an offline profile wear unlocked
   items. Signed on the console with its own key, with a backup first.
-- **Avatar Editor** *(beta)*: jumps straight to the dashboard's avatar editor.
+- **Avatar Editor**: jumps straight to the dashboard's avatar editor.
 
 Runs on jailbroken consoles. No
 avatar items are included; bring your own (easy to find online).
@@ -21,17 +21,17 @@ avatar items are included; bring your own (easy to find online).
 
 1. Download the zip from [Releases](../../releases) and copy the
    `AvatarThriftStore` folder to the hard drive (e.g. `Hdd1:\`) or a USB
-   stick. With both, you pick in the item dialog where unlocked items go.
+   stick. With both, you pick in the unlock dialog where unlocked items go.
 2. Put avatar item packages into `AvatarThriftStore\AvatarItems` (subfolders
    are fine, e.g. one per pack).
 3. Start `AvatarThriftStore.xex` from Aurora or FSD.
 4. Offline profiles: Sign the profile out, then activate it under
    **Activate Offline Profile**. Xbox Live profiles need nothing. Profiles on
    the hard drive and on USB sticks are listed.
-5. **Add Items**, pick items (or *Add all items*), then **Avatar Editor** to
+5. **Unlock Items**: unlock single items (or *Unlock all items*), then **Avatar Editor** to
    put them on.
 
-Controls: D-pad/left stick, A choose, B back, Y search, LB/RB page, BACK quit.
+Controls: D-pad/left stick, A open/unlock, B back, Y search, LB/RB page, BACK quit.
 Pull both triggers for a screenshot (PNG in `AvatarThriftStore\Screenshots`).
 Items only show for an avatar of their gender.
 

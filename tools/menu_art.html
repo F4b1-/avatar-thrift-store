@@ -1,0 +1,85 @@
+<!doctype html>
+<!-- The pictures at the top of the main menu's cards, 364 x 190 each, with the
+     card's rounded top corners. tools/gen_menu_art.ps1 renders #0, #1 and #2
+     to PNGs and embeds them in app/menu_art.h. The icons keep the shapes the
+     app used to draw itself: a shirt, a person with a tick, a hanger. -->
+<meta charset="utf-8">
+<style>html, body { margin: 0; background: transparent; } svg { display: block; }</style>
+<svg id="art" width="364" height="190" viewBox="0 0 364 190"></svg>
+<script>
+const W = 364, H = 190, CX = W / 2, CY = H / 2, RADIUS = 28;
+const CREAM = '#f7f3ea';
+const tiles = [
+  { base: '#5e8f4c', light: '#7aab64', dark: '#4f7c3f', icon: 'shirt' },     // Unlock Items
+  { base: '#6e5c8a', light: '#8977a6', dark: '#5d4c78', icon: 'profile' },   // Activate Offline Profile
+  { base: '#4f6f8f', light: '#6a8bab', dark: '#41607e', icon: 'hanger' },    // Avatar Editor
+];
+
+function sparkle(x, y, r, o) {
+  const k = r * 0.25;
+  return `<path d="M${x} ${y - r} Q${x + k} ${y - k} ${x + r} ${y} Q${x + k} ${y + k} ${x} ${y + r} Q${x - k} ${y + k} ${x - r} ${y} Q${x - k} ${y - k} ${x} ${y - r}Z" fill="#fff" opacity="${o}"/>`;
+}
+function shirtShape(fill) {
+  return `<rect x="${CX - 88}" y="${CY - 60}" width="60" height="56" rx="14" fill="${fill}"/>
+    <rect x="${CX + 28}" y="${CY - 60}" width="60" height="56" rx="14" fill="${fill}"/>
+    <rect x="${CX - 54}" y="${CY - 64}" width="108" height="136" rx="16" fill="${fill}"/>`;
+}
+function profileShape(fill) {
+  return `<circle cx="${CX}" cy="${CY - 32}" r="38" fill="${fill}"/>
+    <rect x="${CX - 70}" y="${CY + 14}" width="140" height="68" rx="34" fill="${fill}"/>`;
+}
+// The hook: from the neck up, over the top and down on the left, to 215 degrees.
+const hookPath = (() => {
+  const r = 21, hx = CX - r, hy = CY - 34, t = 215 * Math.PI / 180;
+  return `M${CX} ${CY - 8} V${hy} A${r} ${r} 0 1 0 ${hx + r * Math.cos(t)} ${hy - r * Math.sin(t)}`;
+})();
+const hangerPath = `${hookPath} M${CX} ${CY - 8} L${CX - 110} ${CY + 50} L${CX + 110} ${CY + 50} Z`;
+const tick = (x, y, s, w) => `<path d="M${x} ${y + 6 * s} l${5 * s} ${5 * s} l${10 * s} -${10 * s}" fill="none" stroke="#fff" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round"/>`;
+
+function art(t) {
+  let s = `<defs>
+    <clipPath id="card"><path d="M0 ${H} V${RADIUS} A${RADIUS} ${RADIUS} 0 0 1 ${RADIUS} 0 H${W - RADIUS} A${RADIUS} ${RADIUS} 0 0 1 ${W} ${RADIUS} V${H} Z"/></clipPath>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${t.light}"/><stop offset="0.6" stop-color="${t.base}"/><stop offset="1" stop-color="${t.dark}"/></linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#fff" stop-opacity="0.3"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+    <pattern id="stripes" width="14" height="14" patternUnits="userSpaceOnUse" patternTransform="rotate(-30)"><rect width="7" height="14" fill="#fff" opacity="0.045"/></pattern>
+    <linearGradient id="cream" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fffdf8"/><stop offset="1" stop-color="#e8dfcd"/></linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="170%"><feDropShadow dx="0" dy="7" stdDeviation="6" flood-color="#000" flood-opacity="0.3"/></filter>
+    <linearGradient id="green" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8fc879"/><stop offset="1" stop-color="#4f8a3d"/></linearGradient>
+    <linearGradient id="metal" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#ddd4c2"/></linearGradient>
+    <mask id="collar"><rect width="${W}" height="${H}" fill="#fff"/><circle cx="${CX}" cy="${CY - 66}" r="22" fill="#000"/></mask>
+  </defs>
+  <g clip-path="url(#card)">
+  <rect width="${W}" height="${H}" fill="url(#bg)"/>
+  <rect width="${W}" height="${H}" fill="url(#stripes)"/>
+  <ellipse cx="${CX}" cy="${CY + 4}" rx="150" ry="100" fill="url(#glow)"/>
+  <rect y="${H - 3}" width="${W}" height="3" fill="#000" opacity="0.12"/>`;
+  if (t.icon === 'shirt') {
+    s += `<g filter="url(#shadow)"><g mask="url(#collar)">${shirtShape('url(#cream)')}</g></g>
+      <g fill="none" stroke="#7d6f55" stroke-opacity="0.35" stroke-width="2" stroke-dasharray="5 4" stroke-linecap="round">
+        <path d="M${CX - 82} ${CY - 13} H${CX - 54}"/><path d="M${CX + 54} ${CY - 13} H${CX + 82}"/>
+        <path d="M${CX - 29} ${CY - 61} A29 29 0 0 0 ${CX + 29} ${CY - 61}"/>
+        <path d="M${CX - 46} ${CY + 63} H${CX + 46}"/></g>`;
+    s += sparkle(CX + 112, CY - 46, 9, 0.85) + sparkle(CX - 116, CY + 46, 6, 0.6) + sparkle(CX + 124, CY + 30, 4, 0.5);
+  }
+  if (t.icon === 'profile') {
+    s += `<g filter="url(#shadow)">${profileShape('url(#cream)')}</g>
+      <ellipse cx="${CX - 13}" cy="${CY - 48}" rx="15" ry="9" fill="#fff" opacity="0.75" transform="rotate(-35 ${CX - 13} ${CY - 48})"/>
+      <path d="M${CX - 50} ${CY + 26} Q${CX} ${CY + 16} ${CX + 50} ${CY + 26}" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" opacity="0.7"/>
+      <g filter="url(#shadow)"><circle cx="${CX + 62}" cy="${CY + 50}" r="30" fill="${CREAM}"/></g>
+      <circle cx="${CX + 62}" cy="${CY + 50}" r="25" fill="url(#green)"/>
+      <path d="M${CX + 42} ${CY + 44} A22 18 0 0 1 ${CX + 82} ${CY + 44} Q${CX + 62} ${CY + 38} ${CX + 42} ${CY + 44}Z" fill="#fff" opacity="0.28"/>
+      ${tick(CX + 49, CY + 40, 1.3, 6)}`;
+    s += sparkle(CX + 120, CY - 8, 8, 0.8) + sparkle(CX - 104, CY - 22, 5, 0.6);
+  }
+  if (t.icon === 'hanger') {
+    s += `<g filter="url(#shadow)"><path d="${hangerPath}" fill="none" stroke="url(#metal)" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/></g>
+      <path d="M${CX - 92} ${CY + 39} L${CX - 8} ${CY - 5}" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity="0.9"/>
+      <path d="M${CX - 30} ${CY - 49} A18 18 0 0 1 ${CX - 6} ${CY - 50}" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity="0.9"/>
+      <circle cx="${CX}" cy="${CY - 8}" r="9" fill="url(#metal)" stroke="#cfc4ae" stroke-width="1.5"/>`;
+    s += sparkle(CX + 128, CY + 4, 9, 0.85) + sparkle(CX - 120, CY - 40, 5, 0.6);
+  }
+  return s + '</g>';
+}
+
+document.getElementById('art').innerHTML = art(tiles[Number(location.hash.slice(1)) || 0]);
+</script>

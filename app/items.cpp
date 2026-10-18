@@ -340,7 +340,7 @@ bool InstallItemFile(const std::string& path, bool removeSource, const std::vect
     }
     if (removeSource && !DeleteFile(source))
     {
-        *error = "installed, but the file could not be deleted";
+        *error = "unlocked, but the file could not be deleted";
         return false;
     }
     return true;

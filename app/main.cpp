@@ -1,22 +1,24 @@
 // Avatar Thrift Store - xsdk homebrew for modded consoles.
 //
-// "Add Items": browses the AvatarItems folder next to the app (folders as a
+// "Unlock Items": browses the AvatarItems folder next to the app (folders as a
 // list, items as tiles with their previews, a search over all folder names)
-// and installs items for the shared online XUID (patched, then copied to
+// and unlocks items for the shared online XUID (patched, then copied to
 // Content\0000000000000000\AAAAAAAA\00009000 on the hard disk or a USB stick,
 // picked in the dialog; the app's own drive first).
 // "Activate Offline Profile": gives an offline profile that XUID, the way
 // 360mpGui's offline-to-online maker does, and re-signs it with this
 // console's own key. The README's "Key findings" describe the formats behind both.
 //
-// Controls: D-pad/left stick to move, LB/RB a page, A to choose, B to go back,
+// Controls: D-pad/left stick to move, LB/RB a page, A to open or unlock, B to go back,
 // Y to search, BACK to quit.
 
 #include "gfx.h"
 #include "items.h"
+#include "menu_art.h"
 #include "profiles.h"
 #include "screenshot.h"
 #include "../core/account.h"
+#include "stb_image.h"
 
 #include "xsdk/kernel.h"
 #include "xsdk/log.h"
@@ -322,7 +324,7 @@ static void DrawFooter(Canvas& c, const std::string& hints)
     DrawHints(c, kMarginX, kFooterY, hints);
 }
 
-// The tag on a tile: "NEW" until the item is added, then "UNLOCKED".
+// The tag on a tile: "NEW" until the item is unlocked, then "UNLOCKED".
 static void DrawTag(Canvas& c, int x, int y, bool unlocked)
 {
     std::string text = unlocked ? "UNLOCKED" : "NEW";
@@ -346,7 +348,7 @@ static void DrawFolderIcon(Canvas& c, int x, int y, const std::string& name)
     c.FillRoundRect(x + 16, y + 23, 32, 22, 5, kColorWhite);
 }
 
-// A white disc with a green plus, the "Add all" row, in a 64 x 64 cell.
+// A white disc with a green plus, the "Unlock all" row, in a 64 x 64 cell.
 static void DrawAddAllIcon(Canvas& c, int x, int y)
 {
     c.FillCircle(x + 32, y + 32, 28, kColorWhite);
@@ -613,8 +615,8 @@ public:
             std::vector<std::string> options;
             if (DriveRows())
                 options.push_back(DriveOption());
-            options.push_back(item.installed ? "Add Item again" : "Add Item");
-            options.push_back("Add Item and Remove");
+            options.push_back(item.installed ? "Unlock again" : "Unlock");
+            options.push_back("Unlock and delete file");
             options.push_back("Cancel");
             std::string drives;
             for (size_t i = 0; i < item.installedOn.size(); i++)
@@ -630,10 +632,10 @@ public:
             std::vector<std::string> options;
             if (DriveRows())
                 options.push_back(DriveOption());
-            options.push_back("Add all");
-            options.push_back("Add all and Remove");
+            options.push_back("Unlock all");
+            options.push_back("Unlock all and delete files");
             options.push_back("Cancel");
-            DrawDialog(c, "Add all items", lines, options, m_optionIndex);
+            DrawDialog(c, "Unlock all items", lines, options, m_optionIndex);
         }
         else if (m_overlay == kOverlayConfirmActivate && m_profileIndex < (int)m_profiles.size())
         {
@@ -753,41 +755,62 @@ private:
         ShowMessage("Avatar Editor", lines);
     }
 
+    // Decodes card `index`'s picture (menu_art.h) to ARGB, scaled to w x h if
+    // the cards aren't the size it was made for.
+    void LoadMenuArt(int index, int w, int h)
+    {
+        int sw = 0;
+        int sh = 0;
+        int channels = 0;
+        unsigned char* rgba = stbi_load_from_memory(g_menuArt[index], (int)g_menuArtSize[index], &sw, &sh, &channels, 4);
+        if (!rgba)
+        {
+            xsdk_log_write("menu: picture %d can't be decoded", index);
+            return;
+        }
+        std::vector<u32> argb(sw * sh);
+        for (int p = 0; p < sw * sh; p++)
+            argb[p] = (u32)rgba[p * 4 + 3] << 24 | (u32)rgba[p * 4] << 16 | (u32)rgba[p * 4 + 1] << 8 | rgba[p * 4 + 2];
+        stbi_image_free(rgba);
+        if (sw == w && sh == h)
+            m_menuArt[index].swap(argb);
+        else
+            Canvas::ScaleImage(&argb[0], sw, sh, w, h, &m_menuArt[index]);
+    }
+
     void DrawMenu(Canvas& c)
     {
         DrawHeader(c, "");
-        static const char* kOptions[kMenuCards] = { "Add Items", "Activate Offline Profile", "Avatar Editor" };
+        static const char* kOptions[kMenuCards] = { "Unlock Items", "Activate Offline Profile", "Avatar Editor" };
         static const char* kHelp[kMenuCards] =
         {
-            "Browse and unlock items in the AvatarItems folder",
-            "Get an offline profile ready to wear the items.",
+            "Unlock items in AvatarItems for every profile",
+            "Get an offline profile ready for unlocked items",
             "Go straight to the dashboard's Avatar Editor",
         };
-        // Not confirmed on every console yet.
-        static const bool kBeta[kMenuCards] = { false, true, true };
+        // The card's colour, shown if its picture can't be decoded.
         static const u32 kHero[kMenuCards] = { 0xFF5E8F4C, 0xFF6E5C8A, 0xFF4F6F8F };
         const int gap = 30;
         const int w = (c.Width() - 2 * kMarginX + 32 - (kMenuCards - 1) * gap) / kMenuCards;
         const int h = 420;
         const int hero = 190;
+        static bool s_artLoaded = false;
+        if (!s_artLoaded)
+        {
+            for (int i = 0; i < kMenuCards; i++)
+                LoadMenuArt(i, w, hero);
+            s_artLoaded = true;
+        }
         for (int i = 0; i < kMenuCards; i++)
         {
             int x = kMarginX - 16 + i * (w + gap);
             int y = DrawCard(c, x, 168, w, h, 28, i == m_menuIndex, true);
-            c.FillRoundRect(x, y, w, hero, 28, kHero[i]);
-            c.FillRect(x, y + hero - 28, w, 28, kHero[i]);
-            if (i == 0)
-                DrawShirtIcon(c, x + w / 2, y + hero / 2, kHero[i]);
-            else if (i == 1)
-                DrawProfileIcon(c, x + w / 2, y + hero / 2);
+            if (m_menuArt[i].size() == (size_t)(w * hero))
+                c.DrawImage(x, y, w, hero, &m_menuArt[i][0]);
             else
-                DrawHangerIcon(c, x + w / 2, y + hero / 2);
-            if (kBeta[i])
             {
-                int bw = Canvas::TextWidth("BETA") + 24;
-                c.FillRoundRect(x + w - bw - 16, y + 19, bw, 34, 17, 0x40000000);
-                c.FillRoundRect(x + w - bw - 16, y + 16, bw, 34, 17, kColorYellow);
-                DrawBoldText(c, x + w - bw - 4, y + 17, "BETA", kColorInk);
+                c.FillRoundRect(x, y, w, hero, 28, kHero[i]);
+                c.FillRect(x, y + hero - 28, w, 28, kHero[i]);
             }
             int ty = y + hero + 20;
             std::vector<std::string> title = WrapText(kOptions[i], w - 56);
@@ -801,67 +824,7 @@ private:
         DrawFooter(c, "A select   BACK quit");
     }
 
-    // A line `radius` thick with round ends, as a row of discs.
-    static void DrawThickLine(Canvas& c, int x0, int y0, int x1, int y1, int radius, u32 color)
-    {
-        int dx = x1 - x0;
-        int dy = y1 - y0;
-        int steps = (dx < 0 ? -dx : dx) > (dy < 0 ? -dy : dy) ? (dx < 0 ? -dx : dx) : (dy < 0 ? -dy : dy);
-        for (int i = 0; i <= steps; i++)
-            c.FillCircle(x0 + dx * i / (steps ? steps : 1), y0 + dy * i / (steps ? steps : 1), radius, color);
-    }
-
-    // A clothes hanger, centred on (cx, cy), as even white strokes: a hook that
-    // rises from the neck, curls over to the left and ends pointing down, and
-    // the triangle of shoulders and bar.
-    static void DrawHangerIcon(Canvas& c, int cx, int cy)
-    {
-        const int stroke = 7;
-        const int apexY = cy - 8;
-        const int barY = cy + 50;
-        // The hook: an arc around (hookX, hookY) from its right side (the neck's
-        // top) over the top to a little past its left side.
-        const int r = 21;
-        const int hookX = cx - r;
-        const int hookY = cy - 34;
-        int px = cx;
-        int py = hookY;
-        for (int degrees = 5; degrees <= 215; degrees += 5)
-        {
-            float t = degrees * 3.14159265f / 180.0f;
-            int nx = hookX + (int)(r * cosf(t));
-            int ny = hookY - (int)(r * sinf(t));
-            DrawThickLine(c, px, py, nx, ny, stroke, kColorWhite);
-            px = nx;
-            py = ny;
-        }
-        DrawThickLine(c, cx, hookY, cx, apexY, stroke, kColorWhite);   // the neck
-        DrawThickLine(c, cx, apexY, cx - 110, barY, stroke, kColorWhite);
-        DrawThickLine(c, cx, apexY, cx + 110, barY, stroke, kColorWhite);
-        DrawThickLine(c, cx - 110, barY, cx + 110, barY, stroke, kColorWhite);
-    }
-
-    // A T-shirt with an amber logo, centred on (cx, cy).
-    static void DrawShirtIcon(Canvas& c, int cx, int cy, u32 background)
-    {
-        c.FillRoundRect(cx - 88, cy - 60, 60, 56, 14, kColorWhite);
-        c.FillRoundRect(cx + 28, cy - 60, 60, 56, 14, kColorWhite);
-        c.FillRoundRect(cx - 54, cy - 64, 108, 136, 16, kColorWhite);
-        c.FillCircle(cx, cy - 66, 22, background);
-        c.FillCircle(cx, cy + 6, 20, kColorYellow);
-    }
-
-    // A person with a green tick, centred on (cx, cy).
-    static void DrawProfileIcon(Canvas& c, int cx, int cy)
-    {
-        c.FillCircle(cx, cy - 32, 38, kColorWhite);
-        c.FillRoundRect(cx - 70, cy + 14, 140, 68, 34, kColorWhite);
-        c.FillCircle(cx + 62, cy + 50, 30, kColorWhite);
-        c.FillCircle(cx + 62, cy + 50, 25, kColorGreen);
-        DrawTick(c, cx + 62 - 15, cy + 50 - 12, 2, kColorWhite);
-    }
-
-    // --- items: a list ("Add all", then the folders) above a grid of item tiles
+    // --- items: a list ("Unlock all", then the folders) above a grid of item tiles
 
     int ListRows() const
     {
@@ -950,8 +913,8 @@ private:
         char summary[96];
         if (updated.failed > 0)
         {
-            snprintf(summary, sizeof summary, "%d updated, %d failed.", updated.installed, updated.failed);
-            std::vector<std::string> lines(1, "Unlocking the installed items for new profiles:");
+            snprintf(summary, sizeof summary, "%d unlocked, %d failed.", updated.installed, updated.failed);
+            std::vector<std::string> lines(1, "Unlocking items again for new profiles:");
             lines.push_back(summary);
             for (size_t i = 0; i < updated.errors.size(); i++)
                 lines.push_back(updated.errors[i]);
@@ -959,9 +922,9 @@ private:
         }
         else if (updated.installed > 0)
         {
-            snprintf(summary, sizeof summary, "%d installed item%s now unlocked for new profiles", updated.installed,
+            snprintf(summary, sizeof summary, "%d item%s now also unlocked for new profiles", updated.installed,
                      updated.installed == 1 ? "" : "s");
-            ShowToast("Updated", summary, std::vector<u32>());
+            ShowToast("Unlocked for new profiles", summary, std::vector<u32>());
         }
     }
 
@@ -1116,7 +1079,7 @@ private:
         int rows = ListRows();
         if (m_selected == 0)
         {
-            m_optionIndex = DriveRows();   // on "Add all", below the drive
+            m_optionIndex = DriveRows();   // on "Unlock all", below the drive
             m_overlay = kOverlayAddAllActions;
         }
         else if (m_selected < rows)
@@ -1129,7 +1092,7 @@ private:
             LoadTile(m_selected - rows);   // in case it wasn't on screen long enough
             if (!SelectedItem()->error.empty())
                 ShowMessage(SelectedItem()->name,
-                            std::vector<std::string>(1, "Can't be installed: " + SelectedItem()->error));
+                            std::vector<std::string>(1, "Can't be unlocked: " + SelectedItem()->error));
             else
             {
                 m_optionIndex = DriveRows();
@@ -1166,7 +1129,7 @@ private:
 
     void DrawItems(Canvas& c)
     {
-        DrawHeader(c, m_folder.empty() ? "Add Items" : m_folder);
+        DrawHeader(c, m_folder.empty() ? "Unlock Items" : m_folder);
         int rows = ListRows();
         int total = rows + Tiles();
         if (total == 0 && m_overlay != kOverlayWorking)
@@ -1200,7 +1163,7 @@ private:
             {
                 DrawRowCard(c, x, y, w, i == m_selected, false, kColorGreen);
                 DrawAddAllIcon(c, kMarginX, y);
-                DrawBoldText(c, textX, y - 2, m_folder.empty() ? "Add all items" : "Add all items in this folder",
+                DrawBoldText(c, textX, y - 2, m_folder.empty() ? "Unlock all items" : "Unlock all items in this folder",
                              kColorWhite, 1, textW);
                 c.DrawText(textX, y + 30, "Subfolders included", 0xFFE3EDDC, 1, textW);
             }
@@ -1216,7 +1179,7 @@ private:
         DrawScrollBar(c, ContentHeight(), m_scroll);
 
         // The selected item's full name, which a tile can't fit, and its state
-        // when it is unlocked or can't be installed (new ones just show the name).
+        // when it is unlocked or can't be unlocked (new ones just show the name).
         if (const Item* item = SelectedItem())
         {
             int nameEnd = c.Width() - kMarginX;
@@ -1234,14 +1197,16 @@ private:
             DrawBoldText(c, kMarginX, kInfoY, item->name, kColorText, 1, nameEnd - kMarginX);
         }
 
-        DrawFooter(c, std::string("A choose   B ") + (m_positions.empty() ? "back" : "up") + "   Y search   LB/RB page");
+        bool onFolder = m_selected > 0 && m_selected < ListRows();
+        DrawFooter(c, std::string(onFolder ? "A open" : "A unlock") + "   B " + (m_positions.empty() ? "back" : "up") +
+                          "   Y search   LB/RB page");
     }
 
-    // The install dialogs start with a row that picks the drive, when there's
+    // The unlock dialogs start with a row that picks the drive, when there's
     // more than one (the hard disk and a USB stick).
     int DriveRows() const { return m_drives.size() > 1 ? 1 : 0; }
 
-    std::string DriveOption() const { return "Install to:  < " + m_drives[m_driveIndex].name + " >"; }
+    std::string DriveOption() const { return "Unlock on:  < " + m_drives[m_driveIndex].name + " >"; }
 
     // "Unlocked", or "Unlocked on USB 1" when there was a choice.
     std::string UnlockedTitle(const std::string& suffix) const
@@ -1264,7 +1229,7 @@ private:
         {
             if (removeSource)
                 RescanFolder();   // it may be installed, with only the delete failed
-            ShowMessage("Not installed", std::vector<std::string>(1, name + ": " + error));
+            ShowMessage("Not unlocked", std::vector<std::string>(1, name + ": " + error));
             return;
         }
         // Only this tile changed; a large folder isn't read again for it.
@@ -1299,7 +1264,7 @@ private:
             ShowToast(UnlockedTitle(removeSource ? ", files removed" : ""), summary, std::vector<u32>());
             return;
         }
-        snprintf(summary, sizeof summary, "%d installed, %d failed.", result.installed, result.failed);
+        snprintf(summary, sizeof summary, "%d unlocked, %d failed.", result.installed, result.failed);
         std::vector<std::string> lines(1, summary);
         for (size_t i = 0; i < result.errors.size(); i++)
             lines.push_back(result.errors[i]);
@@ -1713,10 +1678,10 @@ private:
             m_overlay = kOverlayNone;
         else if (m_overlay == kOverlayItemActions && SelectedItem())
             StartWork(action == 0 ? kWorkInstall : kWorkInstallAndRemove,
-                      "Installing " + SelectedItem()->name + " to " + m_drives[m_driveIndex].name);
+                      "Unlocking " + SelectedItem()->name + " on " + m_drives[m_driveIndex].name);
         else if (m_overlay == kOverlayAddAllActions)
             StartWork(action == 0 ? kWorkInstallAll : kWorkInstallAllAndRemove,
-                      "Installing all items to " + m_drives[m_driveIndex].name + "...");
+                      "Unlocking all items on " + m_drives[m_driveIndex].name + "...");
 
         else
             StartWork(kWorkActivate, "Activating " + m_profiles[m_profileIndex].info.gamertag);
@@ -1729,6 +1694,7 @@ private:
     std::string m_workText;
     bool m_workShown;
     int m_menuIndex;
+    std::vector<u32> m_menuArt[kMenuCards];     // the cards' pictures, ARGB at card size
 
     // Item screen
     std::string m_folder;                       // below AvatarItems, "" at the top
