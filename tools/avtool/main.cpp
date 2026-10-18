@@ -16,12 +16,21 @@
 //       sets the Live-enabled reserved flag. The console signature is NOT
 //       updated (resign it)
 //   avtool verify-sig <package> [...]   check a CON package's console signature
+//   avtool sona-export [--out <file>] <profile>
+//       the profile's avatar as a sona code for 360sona (stdout without --out)
+//   avtool sona-info <sona code file or profile>   the items an avatar wears
+//   avtool sona-import [--unlocked] --out <file> <profile> <sona code file>
+//       writes a copy of the profile wearing the sona, rehashed; the profile's
+//       own XUID in the description stays. --unlocked points every item that
+//       isn't built in at title AAAAAAAA, as this app installs them. The
+//       console signature is NOT updated (resign it)
 
 #include "../../core/account.h"
 #include "../../core/avatar_item.h"
 #include "../../core/bytes.h"
 #include "../../core/gpd.h"
 #include "../../core/profile.h"
+#include "../../core/sona.h"
 #include "../../core/stfs.h"
 #include "../../core/stfs_package.h"
 
@@ -501,6 +510,154 @@ static int CmdVerifySig(const char* path)
     return valid ? 0 : 1;
 }
 
+// A profile's avatar, or a sona code file's.
+static bool ReadAvatar(const char* path, std::vector<u8>* manifest, std::string* error)
+{
+    std::vector<u8> data;
+    if (!ReadWholeFile(path, &data) || data.empty())
+    {
+        *error = "cannot read";
+        return false;
+    }
+    if (data.size() >= 4 && memcmp(&data[0], "CON ", 4) == 0)
+        return ProfileReadAvatar(&data[0], (u32)data.size(), manifest, error);
+    return SonaDecode(std::string(data.begin(), data.end()), manifest, error);
+}
+
+static bool WriteFile(const char* path, const void* data, size_t size)
+{
+    FILE* f = fopen(path, "wb");
+    bool ok = f && fwrite(data, 1, size, f) == size;
+    if (f) fclose(f);
+    return ok;
+}
+
+static int CmdSonaExport(int argc, char** argv)
+{
+    const char* outPath = NULL;
+    const char* inPath = NULL;
+    for (int i = 2; i < argc; i++)
+    {
+        if (strcmp(argv[i], "--out") == 0 && i + 1 < argc)
+            outPath = argv[++i];
+        else
+            inPath = argv[i];
+    }
+    std::vector<u8> data;
+    std::vector<u8> manifest;
+    std::string error;
+    if (!inPath || !ReadWholeFile(inPath, &data) || data.empty() ||
+        !ProfileReadAvatar(&data[0], (u32)data.size(), &manifest, &error))
+    {
+        fprintf(stderr, "%s: %s\n", inPath ? inPath : "sona-export", error.empty() ? "needs a profile" : error.c_str());
+        return 1;
+    }
+    std::string code = SonaEncode(&manifest[0]);
+    if (!outPath)
+    {
+        fputs(code.c_str(), stdout);
+        return 0;
+    }
+    if (!WriteFile(outPath, code.data(), code.size()))
+    {
+        fprintf(stderr, "%s: cannot write\n", outPath);
+        return 1;
+    }
+    printf("%s -> %s\n", inPath, outPath);
+    return 0;
+}
+
+static int CmdSonaInfo(const char* path)
+{
+    std::vector<u8> manifest;
+    std::string error;
+    if (!ReadAvatar(path, &manifest, &error))
+    {
+        fprintf(stderr, "%s: %s\n", path, error.c_str());
+        return 1;
+    }
+    printf("%s\n", path);
+    printf("  owner xuid  %016llX\n", ReadBE64(&manifest[kSonaOffsetOwner]));
+    std::vector<std::vector<u8> > ids = SonaItemIds(&manifest[0]);
+    for (size_t i = 0; i < ids.size(); i++)
+        printf("  %s  %s\n", SonaIdHex(&ids[i][0]).c_str(), SonaIsBuiltIn(&ids[i][0]) ? "built in" : "");
+    return 0;
+}
+
+static int CmdSonaImport(int argc, char** argv)
+{
+    const char* outPath = NULL;
+    const char* inputs[2] = { NULL, NULL };
+    int count = 0;
+    bool unlocked = false;
+    for (int i = 2; i < argc; i++)
+    {
+        if (strcmp(argv[i], "--out") == 0 && i + 1 < argc)
+            outPath = argv[++i];
+        else if (strcmp(argv[i], "--unlocked") == 0)
+            unlocked = true;
+        else if (count < 2)
+            inputs[count++] = argv[i];
+        else
+            count = 3;
+    }
+    if (!outPath || count != 2)
+    {
+        fprintf(stderr, "sona-import needs --out, a profile and a sona code file\n");
+        return 2;
+    }
+    if (_stricmp(inputs[0], outPath) == 0)
+    {
+        fprintf(stderr, "--out must differ from the input; the original profile is never overwritten\n");
+        return 2;
+    }
+
+    std::vector<u8> data;
+    std::vector<u8> current;
+    std::vector<u8> manifest;
+    std::string error;
+    if (!ReadWholeFile(inputs[0], &data) || data.empty() ||
+        !ProfileReadAvatar(&data[0], (u32)data.size(), &current, &error))
+    {
+        fprintf(stderr, "%s: %s\n", inputs[0], error.empty() ? "cannot read" : error.c_str());
+        return 1;
+    }
+    if (!ReadAvatar(inputs[1], &manifest, &error))
+    {
+        fprintf(stderr, "%s: %s\n", inputs[1], error.c_str());
+        return 1;
+    }
+    int retitled = 0;
+    if (unlocked)
+    {
+        std::vector<std::vector<u8> > ids = SonaItemIds(&manifest[0]);
+        for (size_t i = 0; i < ids.size(); i++)
+        {
+            if (SonaIsBuiltIn(&ids[i][0]))
+                continue;
+            u8 to[kSonaGuidSize];
+            memcpy(to, &ids[i][0], kSonaGuidSize);
+            to[12] = to[13] = to[14] = to[15] = 0xAA;
+            retitled += SonaReplaceId(&manifest[0], &ids[i][0], to) > 0;
+        }
+    }
+    memcpy(&manifest[kSonaOffsetOwner], &current[kSonaOffsetOwner], 8);
+    if (!ProfileWriteAvatar(&data[0], (u32)data.size(), &manifest[0], &error))
+    {
+        fprintf(stderr, "%s: %s, nothing written\n", inputs[0], error.c_str());
+        return 1;
+    }
+    if (!WriteFile(outPath, &data[0], data.size()))
+    {
+        fprintf(stderr, "%s: cannot write\n", outPath);
+        return 1;
+    }
+    printf("%s + %s -> %s (%d item ids pointed at AAAAAAAA)\n", inputs[0], inputs[1], outPath, retitled);
+    printf("  block hashes, hash tables and the header hash valid\n");
+    printf("  the console signature is the old one: resign the profile before using it\n");
+    return 0;
+}
+
 static void Usage()
 {
     fprintf(stderr,
@@ -511,7 +668,10 @@ static void Usage()
             "       avtool awards <profile> [...]\n"
             "       avtool patch [--xuid <16 hex>] [--title <8 hex>] --out <dir> <package> [...]\n"
             "       avtool set-xuid [--xuid <16 hex>] [--live] --out <file> <profile>\n"
-            "       avtool verify-sig <package> [...]\n");
+            "       avtool verify-sig <package> [...]\n"
+            "       avtool sona-export [--out <file>] <profile>\n"
+            "       avtool sona-info <sona code file or profile> [...]\n"
+            "       avtool sona-import [--unlocked] --out <file> <profile> <sona code file>\n");
 }
 
 int main(int argc, char** argv)
@@ -534,6 +694,17 @@ int main(int argc, char** argv)
         return CmdPatch(argc, argv);
     if (cmd == "set-xuid")
         return CmdSetXuid(argc, argv);
+    if (cmd == "sona-export")
+        return CmdSonaExport(argc, argv);
+    if (cmd == "sona-import")
+        return CmdSonaImport(argc, argv);
+    if (cmd == "sona-info")
+    {
+        int rc = 0;
+        for (int i = 2; i < argc; i++)
+            rc |= CmdSonaInfo(argv[i]);
+        return rc;
+    }
     if (cmd == "extract" && argc == 5)
         return CmdExtract(argv[2], argv[3], argv[4]);
     if (cmd == "profile")
