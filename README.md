@@ -33,7 +33,7 @@ avatar items are included; bring your own (easy to find online).
 
 Controls: D-pad/left stick, A open/unlock, B back, Y search, LB/RB page, BACK quit.
 Pull both triggers for a screenshot (PNG in `AvatarThriftStore\Screenshots`).
-Items only show for an avatar of their gender.
+In the avatar editor, items only show for an avatar of their gender (the app lists them all).
 
 ## How it works (for those interested)
 
