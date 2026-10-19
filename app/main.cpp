@@ -322,15 +322,13 @@ static void DrawFooter(Canvas& c, const std::string& hints)
     DrawHints(c, kMarginX, kFooterY, hints);
 }
 
-// The tag on an unlocked item's tile.
-static void DrawUnlockedTag(Canvas& c, int x, int y)
+// An unlocked item's mark: a white tick on a 34 px green disc, its top-left
+// corner at x, y (the same size as the body type badge).
+static void DrawUnlockedMark(Canvas& c, int x, int y)
 {
-    std::string text = "UNLOCKED";
-    int w = Canvas::TextWidth(text) + 50;
-    c.FillRoundRect(x, y + 3, w, 34, 17, 0x30000000);
-    c.FillRoundRect(x, y, w, 34, 17, kColorGreen);
-    DrawTick(c, x + 12, y + 10, 1, kColorWhite);
-    DrawBoldText(c, x + 38, y + 1, text, kColorWhite);
+    c.FillCircle(x + 17, y + 20, 17, 0x30000000);
+    c.FillCircle(x + 17, y + 17, 17, kColorGreen);
+    DrawTick(c, x + 8, y + 9, 1, kColorWhite);
 }
 
 // "M" or "F" on a 34 px white disc, its top-left corner at x, y; nothing for
@@ -349,9 +347,9 @@ static void DrawBodyBadge(Canvas& c, int x, int y, AvatarBodyType body)
 static std::string BodyTypeLine(AvatarBodyType body)
 {
     if (body == kAvatarBodyMale)
-        return "Male item, only for male avatars";
+        return "Male item";
     if (body == kAvatarBodyFemale)
-        return "Female item, only for female avatars";
+        return "Female item";
     return "";
 }
 
@@ -637,7 +635,7 @@ public:
             for (size_t i = 0; i < item.installedOn.size(); i++)
                 drives += (i ? ", " : "") + item.installedOn[i];
             lines.push_back(item.installed ? "Already unlocked for every profile (" + drives + ")"
-                                           : "New - unlocks it for every profile");
+                                           : "Not unlocked - unlocks it for every profile");
             std::string body = BodyTypeLine(item.body);
             if (!body.empty())
                 lines.push_back(body);
@@ -1119,7 +1117,7 @@ private:
         }
     }
 
-    // A product card: the preview on a muted spotlight, the unlocked tag, the
+    // A product card: the preview on a muted spotlight, the unlocked mark, the
     // body type badge, the name.
     void DrawTile(Canvas& c, int x, int y, const Item& item, bool selected, int index)
     {
@@ -1133,7 +1131,7 @@ private:
             c.FillCircle(imageX + kTileImage / 2, imageY + kTileImage / 2, kTileImage / 2 - 6, kPastels[index % 5]);
         DrawItemImage(c, imageX, imageY, kTileImage, item, m_tileImages[index]);
         if (item.error.empty() && item.installed)
-            DrawUnlockedTag(c, cardX + 8, top + 8);
+            DrawUnlockedMark(c, cardX + 8, top + 8);
         if (item.error.empty())
             DrawBodyBadge(c, cardX + cardW - 8 - 34, top + 8, item.body);
         u32 color = !item.error.empty() ? kColorBad : kColorText;
@@ -1200,7 +1198,7 @@ private:
         DrawScrollBar(c, ContentHeight(), m_scroll);
 
         // The selected item's full name, which a tile can't fit, and its state
-        // when it is unlocked or can't be unlocked (new ones just show the name).
+        // when it is unlocked or can't be unlocked (others just show the name).
         if (const Item* item = SelectedItem())
         {
             int nameEnd = c.Width() - kMarginX;
