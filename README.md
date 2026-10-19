@@ -17,7 +17,7 @@ no Microsoft SDK required.
 Runs on jailbroken consoles. No
 avatar items are included; bring your own (easy to find online).
 
-Quick disclaimer: I am using this with an activated offline profile (with Xbox Live being blocked, **liveblock enabled**). I suggest you do the same. Log onto Xbox Live at your own risk!
+**Quick disclaimer: I am using this with an activated offline profile (with Xbox Live being blocked, liveblock enabled). I suggest you do the same. Log onto Xbox Live at your own risk!**
 
 ## Getting started
 
