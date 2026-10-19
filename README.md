@@ -183,7 +183,7 @@ toolchain is built once, into `~/xsdk-gcc`:
 git submodule update --init                   # after cloning (or clone with --recursive)
 wsl -d Debian bash third_party/xsdk/tools/toolchain/build.sh   # once; takes a while
 .\build_xbox.ps1                              # -> build\xbox\AvatarThriftStore.xex
-.\tools\package_release.ps1 -Version 0.2.0    # -> dist\AvatarThriftStore-v0.2.0.zip
+.\tools\package_release.ps1 -Version 0.3.0    # -> dist\AvatarThriftStore-v0.3.0.zip
 ```
 
 The title id is `41565453` ("AVTS"), so Aurora keeps the app's cover and
