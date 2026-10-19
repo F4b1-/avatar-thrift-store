@@ -128,7 +128,9 @@ static bool ItemLess(const Item& a, const Item& b)
 {
     std::string la = Lower(a.name);
     std::string lb = Lower(b.name);
-    return la != lb ? la < lb : a.path < b.path;
+    if (la != lb)
+        return la < lb;
+    return a.body != b.body ? a.body < b.body : a.path < b.path;
 }
 
 static bool FolderPathLess(const std::string& a, const std::string& b)
@@ -175,6 +177,7 @@ static Item ReadItemHeader(const std::string& relative, const std::string& fileN
     Item item;
     item.path = Join(relative, fileName);
     item.name = fileName;
+    item.body = kAvatarBodyUnknown;
     item.installed = false;
     item.detailsLoaded = false;
 
@@ -196,6 +199,7 @@ static Item ReadItemHeader(const std::string& relative, const std::string& fileN
     // Avatar items' display names start with a slash ("/Ducktales Logo Tee").
     if (!h.displayName.empty())
         item.name = h.displayName[0] == '/' ? h.displayName.substr(1) : h.displayName;
+    item.body = AvatarItemBodyType(&header[0]);
     item.installedName = AvatarItemPatchedFileName(&header[0], kAvatarDefaultTitleId);
     item.installed = installedNames.count(Upper(item.installedName)) != 0;
     return item;

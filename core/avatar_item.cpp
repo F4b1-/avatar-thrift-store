@@ -75,6 +75,23 @@ std::string AvatarItemPatchedFileName(const u8* data, u32 titleId)
     return HexString(assetId, kAvatarAssetIdSize);
 }
 
+AvatarBodyType AvatarItemBodyType(const u8* data)
+{
+    u32 type = data[kAvatarOffsetAssetBody] & 0x0F;
+    return type <= kAvatarBodyBoth ? (AvatarBodyType)type : kAvatarBodyUnknown;
+}
+
+const char* AvatarBodyTypeName(AvatarBodyType type)
+{
+    switch (type)
+    {
+    case kAvatarBodyMale:   return "male";
+    case kAvatarBodyFemale: return "female";
+    case kAvatarBodyBoth:   return "both";
+    default:                return "unknown";
+    }
+}
+
 bool AvatarItemIsLicensedTo(const u8* data, u64 xuid)
 {
     for (int i = 0; i < kStfsLicenseCount; i++)

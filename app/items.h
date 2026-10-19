@@ -7,6 +7,7 @@
 #pragma once
 
 #include "storage.h"
+#include "../core/avatar_item.h"
 #include "../core/types.h"
 
 #include <string>
@@ -20,6 +21,7 @@ struct Item
     std::string path;           // below AvatarItems: "Domo Pack\\00000008..."
     std::string name;           // the package's display name, or its file name
     std::string error;          // why it can't be installed, if it can't
+    AvatarBodyType body;        // male or female item, from the header
     std::vector<u32> icon;      // kIconSize x kIconSize ARGB, empty without one
     bool installed;             // and licensed to every one of the licensees
     std::vector<std::string> installedOn;   // the drives with such a copy ("HDD", "USB 1")
@@ -29,7 +31,8 @@ struct Item
     std::string installedName;  // its file name in the Content folder
 };
 
-// One folder's contents, each sorted by name.
+// One folder's contents, each sorted by name (items of the same name male
+// before female).
 struct ItemListing
 {
     std::vector<std::string> folders;

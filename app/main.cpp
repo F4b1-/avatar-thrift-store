@@ -40,11 +40,9 @@ static const u32 kColorCard        = 0xFF2A3631;   // rows, dialogs, menu cards
 static const u32 kColorCardPicked  = 0xFF33413A;
 static const u32 kColorGreen       = 0xFF6FA35A;
 static const u32 kColorGreenDark   = 0xFF4E7A40;
-static const u32 kColorYellow      = 0xFFE3AE4F;
 static const u32 kColorWhite       = 0xFFFAF5EC;
 static const u32 kColorText        = 0xFFECE5D8;   // on dark surfaces
 static const u32 kColorDim         = 0xFF98A39C;
-static const u32 kColorInk         = 0xFF2E2A25;   // on amber
 static const u32 kColorGood        = 0xFF8CC475;
 static const u32 kColorWarn        = 0xFFE3AE4F;
 static const u32 kColorBad         = 0xFFE07A5F;
@@ -324,20 +322,37 @@ static void DrawFooter(Canvas& c, const std::string& hints)
     DrawHints(c, kMarginX, kFooterY, hints);
 }
 
-// The tag on a tile: "NEW" until the item is unlocked, then "UNLOCKED".
-static void DrawTag(Canvas& c, int x, int y, bool unlocked)
+// The tag on an unlocked item's tile.
+static void DrawUnlockedTag(Canvas& c, int x, int y)
 {
-    std::string text = unlocked ? "UNLOCKED" : "NEW";
-    int w = Canvas::TextWidth(text) + 24 + (unlocked ? 26 : 0);
+    std::string text = "UNLOCKED";
+    int w = Canvas::TextWidth(text) + 50;
     c.FillRoundRect(x, y + 3, w, 34, 17, 0x30000000);
-    c.FillRoundRect(x, y, w, 34, 17, unlocked ? kColorGreen : kColorYellow);
-    int textX = x + 12;
-    if (unlocked)
-    {
-        DrawTick(c, textX, y + 10, 1, kColorWhite);
-        textX += 26;
-    }
-    DrawBoldText(c, textX, y + 1, text, unlocked ? kColorWhite : kColorInk);
+    c.FillRoundRect(x, y, w, 34, 17, kColorGreen);
+    DrawTick(c, x + 12, y + 10, 1, kColorWhite);
+    DrawBoldText(c, x + 38, y + 1, text, kColorWhite);
+}
+
+// "M" or "F" on a 34 px white disc, its top-left corner at x, y; nothing for
+// items of another (or no known) body type.
+static void DrawBodyBadge(Canvas& c, int x, int y, AvatarBodyType body)
+{
+    if (body != kAvatarBodyMale && body != kAvatarBodyFemale)
+        return;
+    const char* letter = body == kAvatarBodyMale ? "M" : "F";
+    c.FillCircle(x + 17, y + 20, 17, 0x30000000);
+    c.FillCircle(x + 17, y + 17, 17, kColorWhite);
+    DrawBoldText(c, x + 17 - Canvas::TextWidth(letter) / 2, y + 1, letter, kColorCard);
+}
+
+// The item dialog's line about the body type; empty for other body types.
+static std::string BodyTypeLine(AvatarBodyType body)
+{
+    if (body == kAvatarBodyMale)
+        return "Male item, only for male avatars";
+    if (body == kAvatarBodyFemale)
+        return "Female item, only for female avatars";
+    return "";
 }
 
 // A folder on a coloured rounded square, in a 64 x 64 cell.
@@ -623,6 +638,9 @@ public:
                 drives += (i ? ", " : "") + item.installedOn[i];
             lines.push_back(item.installed ? "Already unlocked for every profile (" + drives + ")"
                                            : "New - unlocks it for every profile");
+            std::string body = BodyTypeLine(item.body);
+            if (!body.empty())
+                lines.push_back(body);
             DrawDialog(c, "Avatar item", lines, options, m_optionIndex, &item.icon);
         }
         else if (m_overlay == kOverlayAddAllActions)
@@ -1101,7 +1119,8 @@ private:
         }
     }
 
-    // A product card: the preview on a muted spotlight, a tag, the name.
+    // A product card: the preview on a muted spotlight, the unlocked tag, the
+    // body type badge, the name.
     void DrawTile(Canvas& c, int x, int y, const Item& item, bool selected, int index)
     {
         int cardX = x + 10;
@@ -1113,8 +1132,10 @@ private:
         if (item.error.empty())
             c.FillCircle(imageX + kTileImage / 2, imageY + kTileImage / 2, kTileImage / 2 - 6, kPastels[index % 5]);
         DrawItemImage(c, imageX, imageY, kTileImage, item, m_tileImages[index]);
+        if (item.error.empty() && item.installed)
+            DrawUnlockedTag(c, cardX + 8, top + 8);
         if (item.error.empty())
-            DrawTag(c, cardX + 8, top + 8, item.installed);
+            DrawBodyBadge(c, cardX + cardW - 8 - 34, top + 8, item.body);
         u32 color = !item.error.empty() ? kColorBad : kColorText;
         DrawTextCenteredAt(c, x + kTileWidth / 2, imageY + kTileImage + 2, item.name, color, cardW - 20);
     }

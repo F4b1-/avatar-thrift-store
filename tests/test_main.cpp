@@ -377,6 +377,17 @@ static void TestItemHelpers()
     CHECK(AvatarItemIsLicensedTo(&pkg[0], 0x0009000000000000ull));
     CHECK(!AvatarItemIsLicensedTo(&pkg[0], kSharedOnlineXuid));
 
+    // Body type: the low nibble of asset id byte 7 (...A231... male, ...8242... female).
+    CHECK(AvatarItemBodyType(&pkg[0]) == kAvatarBodyMale);
+    pkg[kAvatarOffsetAssetBody] = 0x42;
+    CHECK(AvatarItemBodyType(&pkg[0]) == kAvatarBodyFemale);
+    pkg[kAvatarOffsetAssetBody] = 0x13;
+    CHECK(AvatarItemBodyType(&pkg[0]) == kAvatarBodyBoth);
+    pkg[kAvatarOffsetAssetBody] = 0x07;
+    CHECK(AvatarItemBodyType(&pkg[0]) == kAvatarBodyUnknown);
+    CHECK(strcmp(AvatarBodyTypeName(kAvatarBodyFemale), "female") == 0);
+    pkg[kAvatarOffsetAssetBody] = 0x31;
+
     // The synthetic header has no thumbnail; one within the header is found.
     const u8* png = NULL;
     u32 pngBytes = 0;
