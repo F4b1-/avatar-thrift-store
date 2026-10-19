@@ -84,7 +84,10 @@ static int CmdInfo(const char* path)
            !h.headerHashChecked ? "not checked, file too short"
                                 : (h.headerHashValid ? "valid" : "MISMATCH"));
     if (h.contentType == kContentTypeAvatarItem)
+    {
         printf("  asset id         %s\n", AvatarItemFileName(&data[0]).c_str());
+        printf("  body type        %s\n", AvatarBodyTypeName(AvatarItemBodyType(&data[0])));
+    }
     printf("  licenses\n");
     for (int i = 0; i < kStfsLicenseCount; i++)
     {

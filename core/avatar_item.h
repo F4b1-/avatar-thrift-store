@@ -25,7 +25,18 @@ enum
     kAvatarOffsetLicensee1  = 0x23C,   // license entry [1], licensee id
     kAvatarOffsetAssetId    = 0x3E1,   // 16 bytes
     kAvatarOffsetAssetTitle = 0x3ED,   // last 4 bytes of the asset id
+    kAvatarOffsetAssetBody  = 0x3E8,   // asset id byte 7, body type in the low nibble
     kAvatarAssetIdSize      = 16,
+};
+
+// The body type an item fits, numbered as in the console's award records.
+// The avatar editor only offers an item to avatars of its body type.
+enum AvatarBodyType
+{
+    kAvatarBodyUnknown = 0,
+    kAvatarBodyMale    = 1,
+    kAvatarBodyFemale  = 2,
+    kAvatarBodyBoth    = 3,   // expected for unisex items, not seen in a package yet
 };
 
 // Title id used when the caller doesn't choose one (same as the patcher's guide).
@@ -52,6 +63,13 @@ std::string AvatarItemFileName(const u8* data);
 // The file name the package gets once patched to `titleId` (its asset id ends
 // in the title id), without patching it.
 std::string AvatarItemPatchedFileName(const u8* data, u32 titleId);
+
+// The item's body type, from its asset id (agrees with asset_v2.bin's byte
+// 0x2D on every package checked, issue #7). Unlocking leaves it as it is.
+AvatarBodyType AvatarItemBodyType(const u8* data);
+
+// "male", "female", "both" or "unknown".
+const char* AvatarBodyTypeName(AvatarBodyType type);
 
 // True when one of the package's license entries names `xuid`.
 bool AvatarItemIsLicensedTo(const u8* data, u64 xuid);
