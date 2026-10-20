@@ -486,9 +486,7 @@ enum PendingWork
     kWorkOpenItems,
     kWorkScanItems,
     kWorkInstall,
-    kWorkInstallAndRemove,
     kWorkInstallAll,
-    kWorkInstallAllAndRemove,
     kWorkIndexFolders,
     kWorkScanProfiles,
     kWorkActivate,
@@ -572,12 +570,10 @@ public:
             RescanFolder();
             break;
         case kWorkInstall:
-        case kWorkInstallAndRemove:
-            Install(work == kWorkInstallAndRemove);
+            Install();
             break;
         case kWorkInstallAll:
-        case kWorkInstallAllAndRemove:
-            InstallAll(work == kWorkInstallAllAndRemove);
+            InstallAll();
             break;
         case kWorkIndexFolders:
             m_folderIndex = IndexItemFolders();
@@ -621,7 +617,6 @@ public:
             if (DriveRows())
                 options.push_back(DriveOption());
             options.push_back(item.installed ? "Unlock again" : "Unlock");
-            options.push_back("Unlock and delete file");
             options.push_back("Cancel");
             std::string drives;
             for (size_t i = 0; i < item.installedOn.size(); i++)
@@ -641,7 +636,6 @@ public:
             if (DriveRows())
                 options.push_back(DriveOption());
             options.push_back("Unlock all");
-            options.push_back("Unlock all and delete files");
             options.push_back("Cancel");
             DrawDialog(c, "Unlock all items", lines, options, m_optionIndex);
         }
@@ -894,8 +888,8 @@ private:
     }
 
     // Items are unlocked for every profile: the shared XUID (activated offline
-    // profiles) and each Xbox Live profile's own. Installed items get the XUIDs
-    // of Live profiles that turned up since added here.
+    // profiles) and each Xbox Live profile's own. Items unlocked before a Live
+    // profile turned up show as not unlocked again, for unlocking once more.
     void OpenItems()
     {
         // The drive picked before stays picked while it's there; the app's own
@@ -907,9 +901,7 @@ private:
             if (m_drives[i].name == picked)
                 m_driveIndex = (int)i;
         m_licensees = ItemLicensees();
-        InstallAllResult updated = UpdateInstalledItems(m_licensees, m_drives);
-        xsdk_log_write("items: %d licensees, %d installed items updated, %d failed", (int)m_licensees.size(),
-                       updated.installed, updated.failed);
+        xsdk_log_write("items: %d licensees", (int)m_licensees.size());
         m_screenId = kScreenItems;
         m_folder.clear();
         m_positions.clear();
@@ -917,22 +909,6 @@ private:
         m_scroll = 0;
         m_folderIndexBuilt = false;   // the folders may have changed since
         RescanFolder();
-        char summary[96];
-        if (updated.failed > 0)
-        {
-            snprintf(summary, sizeof summary, "%d unlocked, %d failed.", updated.installed, updated.failed);
-            std::vector<std::string> lines(1, "Unlocking items again for new profiles:");
-            lines.push_back(summary);
-            for (size_t i = 0; i < updated.errors.size(); i++)
-                lines.push_back(updated.errors[i]);
-            ShowMessage("Partly done", lines);
-        }
-        else if (updated.installed > 0)
-        {
-            snprintf(summary, sizeof summary, "%d item%s now also unlocked for new profiles", updated.installed,
-                     updated.installed == 1 ? "" : "s");
-            ShowToast("Unlocked for new profiles", summary, std::vector<u32>());
-        }
     }
 
     // Loads one tile's details (full check, preview, license) and scales its
@@ -1212,12 +1188,12 @@ private:
     std::string DriveOption() const { return "Unlock on:  < " + m_drives[m_driveIndex].name + " >"; }
 
     // "Unlocked", or "Unlocked on USB 1" when there was a choice.
-    std::string UnlockedTitle(const std::string& suffix) const
+    std::string UnlockedTitle() const
     {
-        return (DriveRows() ? "Unlocked on " + m_drives[m_driveIndex].name : std::string("Unlocked")) + suffix;
+        return DriveRows() ? "Unlocked on " + m_drives[m_driveIndex].name : std::string("Unlocked");
     }
 
-    void Install(bool removeSource)
+    void Install()
     {
         const Item* item = SelectedItem();
         if (!item)
@@ -1227,44 +1203,29 @@ private:
         std::vector<u32> icon = item->icon;
         std::string error;
         const Drive& drive = m_drives[m_driveIndex];
-        bool installed = InstallItemFile(item->path, removeSource, m_licensees, drive, &error);
-        if (!installed)
+        if (!InstallItemFile(item->path, m_licensees, drive, &error))
         {
-            if (removeSource)
-                RescanFolder();   // it may be installed, with only the delete failed
             ShowMessage("Not unlocked", std::vector<std::string>(1, name + ": " + error));
             return;
         }
         // Only this tile changed; a large folder isn't read again for it.
-        if (removeSource)
-        {
-            m_listing.items.erase(m_listing.items.begin() + tile);
-            m_tileImages.erase(m_tileImages.begin() + tile);
-            int total = ListRows() + Tiles();
-            if (m_selected >= total)
-                m_selected = total > 0 ? total - 1 : 0;
-            ScrollToSelected();
-        }
-        else
-        {
-            Item& installedItem = m_listing.items[tile];
-            installedItem.installed = true;
-            if (std::find(installedItem.installedOn.begin(), installedItem.installedOn.end(), drive.name) ==
-                installedItem.installedOn.end())
-                installedItem.installedOn.push_back(drive.name);
-        }
-        ShowToast(UnlockedTitle(removeSource ? ", file removed" : ""), name, icon);
+        Item& installedItem = m_listing.items[tile];
+        installedItem.installed = true;
+        if (std::find(installedItem.installedOn.begin(), installedItem.installedOn.end(), drive.name) ==
+            installedItem.installedOn.end())
+            installedItem.installedOn.push_back(drive.name);
+        ShowToast(UnlockedTitle(), name, icon);
     }
 
-    void InstallAll(bool removeSource)
+    void InstallAll()
     {
-        InstallAllResult result = InstallAllItems(m_folder, removeSource, m_licensees, m_drives[m_driveIndex]);
+        InstallAllResult result = InstallAllItems(m_folder, m_licensees, m_drives[m_driveIndex]);
         RescanFolder();
         char summary[96];
         if (result.failed == 0)
         {
             snprintf(summary, sizeof summary, "%d item%s", result.installed, result.installed == 1 ? "" : "s");
-            ShowToast(UnlockedTitle(removeSource ? ", files removed" : ""), summary, std::vector<u32>());
+            ShowToast(UnlockedTitle(), summary, std::vector<u32>());
             return;
         }
         snprintf(summary, sizeof summary, "%d unlocked, %d failed.", result.installed, result.failed);
@@ -1654,7 +1615,7 @@ private:
         }
         bool installing = m_overlay == kOverlayItemActions || m_overlay == kOverlayAddAllActions;
         int driveRows = installing ? DriveRows() : 0;
-        int options = m_overlay == kOverlayConfirmActivate ? 2 : 3 + driveRows;
+        int options = 2 + driveRows;   // the action and Cancel, below the drive row
         if (pressed & kButtonUp)
             m_optionIndex = (m_optionIndex + options - 1) % options;
         if (pressed & kButtonDown)
@@ -1676,15 +1637,12 @@ private:
         }
         if (!(pressed & kButtonA))
             return;
-        int action = m_optionIndex - driveRows;
         if (m_optionIndex == options - 1)   // Cancel
             m_overlay = kOverlayNone;
         else if (m_overlay == kOverlayItemActions && SelectedItem())
-            StartWork(action == 0 ? kWorkInstall : kWorkInstallAndRemove,
-                      "Unlocking " + SelectedItem()->name + " on " + m_drives[m_driveIndex].name);
+            StartWork(kWorkInstall, "Unlocking " + SelectedItem()->name + " on " + m_drives[m_driveIndex].name);
         else if (m_overlay == kOverlayAddAllActions)
-            StartWork(action == 0 ? kWorkInstallAll : kWorkInstallAllAndRemove,
-                      "Unlocking all items on " + m_drives[m_driveIndex].name + "...");
+            StartWork(kWorkInstallAll, "Unlocking all items on " + m_drives[m_driveIndex].name + "...");
 
         else
             StartWork(kWorkActivate, "Activating " + m_profiles[m_profileIndex].info.gamertag);

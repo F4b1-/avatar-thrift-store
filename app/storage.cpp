@@ -127,11 +127,6 @@ bool WriteWholeFile(const std::string& path, const u8* data, u32 size)
     return ReadWholeFile(path, &back) && back.size() == size && (size == 0 || memcmp(&back[0], data, size) == 0);
 }
 
-bool DeleteFile(const std::string& path)
-{
-    return unlink(path.c_str()) == 0;
-}
-
 bool MakeDirs(const std::string& root, const std::string& relative)
 {
     std::string path = root;

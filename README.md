@@ -63,8 +63,9 @@ with an **M** or **F** badge on each tile (an item's male version comes first).
   `AAAAAAAA`. The original file name isn't kept.
 
 So an item unlocked once works for every activated offline profile at once,
-and for each Xbox Live profile the app knew about when it was unlocked;
-profiles found later are added the next time **Unlock Items** opens.
+and for each Xbox Live profile the app knew about when it was unlocked. For
+an Xbox Live profile added later, the item shows as not unlocked again;
+unlocking it once more adds that profile (keep the item files for this).
 
 ## Code layout
 
