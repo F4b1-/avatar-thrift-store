@@ -7,10 +7,12 @@
 // picked in the dialog; the app's own drive first).
 // "Activate Offline Profile": gives an offline profile that XUID, the way
 // 360mpGui's offline-to-online maker does, and re-signs it with this
-// console's own key. The README's "Key findings" describe the formats behind both.
+// console's own key. Opening "Unlock Items" offers that for a signed-in offline
+// profile too, signing it out first. The README's "Key findings" describe the
+// formats behind both.
 //
-// Controls: D-pad/left stick to move, LB/RB a page, A to open or unlock, B to go back,
-// Y to search, BACK to quit.
+// Controls: D-pad/left stick to move, LB/RB a page, A to open or unlock, X to unlock
+// all items in a folder, B to go back, Y to search, BACK to quit.
 
 #include "gfx.h"
 #include "items.h"
@@ -361,14 +363,6 @@ static void DrawFolderIcon(Canvas& c, int x, int y, const std::string& name)
     c.FillRoundRect(x + 16, y + 23, 32, 22, 5, kColorWhite);
 }
 
-// A white disc with a green plus, the "Unlock all" row, in a 64 x 64 cell.
-static void DrawAddAllIcon(Canvas& c, int x, int y)
-{
-    c.FillCircle(x + 32, y + 32, 28, kColorWhite);
-    c.FillRoundRect(x + 28, y + 14, 8, 36, 4, kColorGreen);
-    c.FillRoundRect(x + 14, y + 28, 36, 8, 4, kColorGreen);
-}
-
 // The preview, already scaled to `size` (`scaled`), or a placeholder without one.
 static void DrawItemImage(Canvas& c, int x, int y, int size, const Item& item, const std::vector<u32>& scaled)
 {
@@ -483,6 +477,7 @@ enum Overlay
     kOverlayItemActions,
     kOverlayAddAllActions,
     kOverlayConfirmActivate,
+    kOverlayConfirmSignedInActivate,
     kOverlayMessage,
     kOverlayWorking,
     kOverlayKeyboard,
@@ -494,12 +489,11 @@ enum PendingWork
     kWorkOpenItems,
     kWorkScanItems,
     kWorkInstall,
-    kWorkInstallAndRemove,
     kWorkInstallAll,
-    kWorkInstallAllAndRemove,
     kWorkIndexFolders,
     kWorkScanProfiles,
     kWorkActivate,
+    kWorkSignOutAndActivate,
     kWorkScreenshot,
 };
 
@@ -580,12 +574,10 @@ public:
             RescanFolder();
             break;
         case kWorkInstall:
-        case kWorkInstallAndRemove:
-            Install(work == kWorkInstallAndRemove);
+            Install();
             break;
         case kWorkInstallAll:
-        case kWorkInstallAllAndRemove:
-            InstallAll(work == kWorkInstallAllAndRemove);
+            InstallAll();
             break;
         case kWorkIndexFolders:
             m_folderIndex = IndexItemFolders();
@@ -598,7 +590,10 @@ public:
                 m_profileIndex = 0;
             break;
         case kWorkActivate:
-            Activate();
+            Activate(m_profiles[m_profileIndex], false);
+            break;
+        case kWorkSignOutAndActivate:
+            SignOutAndActivate();
             break;
         case kWorkScreenshot:
             SaveTakenScreenshot();
@@ -629,7 +624,6 @@ public:
             if (DriveRows())
                 options.push_back(DriveOption());
             options.push_back(item.installed ? "Unlock again" : "Unlock");
-            options.push_back("Unlock and delete file");
             options.push_back("Cancel");
             std::string drives;
             for (size_t i = 0; i < item.installedOn.size(); i++)
@@ -643,13 +637,12 @@ public:
         }
         else if (m_overlay == kOverlayAddAllActions)
         {
-            std::vector<std::string> lines(1, m_folder.empty() ? "Every item in AvatarItems," : "Every item in this folder,");
-            lines.push_back("subfolders included.");
+            std::vector<std::string> lines;
+			lines.push_back("Unlock every item in this folder and below?");
             std::vector<std::string> options;
             if (DriveRows())
                 options.push_back(DriveOption());
             options.push_back("Unlock all");
-            options.push_back("Unlock all and delete files");
             options.push_back("Cancel");
             DrawDialog(c, "Unlock all items", lines, options, m_optionIndex);
         }
@@ -657,17 +650,24 @@ public:
         {
             const ProfileEntry& p = m_profiles[m_profileIndex];
             std::vector<std::string> lines;
-            char xuid[24];
-            snprintf(xuid, sizeof xuid, "%016llX", (unsigned long long)kSharedOnlineXuid);
-            lines.push_back("New online XUID for " + p.info.gamertag + ":");
-            lines.push_back(std::string("  ") + xuid);
-            lines.push_back("(the same for every activated profile)");
-            lines.push_back("Re-signed with this console's key; a backup");
-            lines.push_back("is saved to Backups first.");
+            lines.push_back("Do you want to activate the profile");
+            lines.push_back(p.info.gamertag + "?");
             std::vector<std::string> options;
             options.push_back("Activate " + p.info.gamertag);
             options.push_back("Cancel");
             DrawDialog(c, "Activate offline profile", lines, options, m_optionIndex);
+        }
+        else if (m_overlay == kOverlayConfirmSignedInActivate)
+        {
+            const std::string& gamertag = m_signedInOffline.info.gamertag;
+            std::vector<std::string> lines;
+            lines.push_back(gamertag + " is an offline profile.");
+            lines.push_back("You need to activate it to unlock avatar items.");
+            lines.push_back("Do you want to log out and activate the profile?");
+            std::vector<std::string> options;
+            options.push_back("Activate " + gamertag);
+            options.push_back("Not now");
+            DrawDialog(c, "Activate signed-in profile?", lines, options, m_optionIndex);
         }
 
         else if (m_overlay == kOverlayMessage)
@@ -840,13 +840,12 @@ private:
         DrawFooter(c, "A select   BACK quit");
     }
 
-    // --- items: a list ("Unlock all", then the folders) above a grid of item tiles
+    // --- items: a list of the folders above a grid of item tiles; X unlocks them all
 
-    int ListRows() const
-    {
-        bool any = !m_listing.folders.empty() || !m_listing.items.empty();
-        return (any ? 1 : 0) + (int)m_listing.folders.size();
-    }
+    int ListRows() const { return (int)m_listing.folders.size(); }
+
+    // Whether "Unlock all" (X) has anything to look through: items here or subfolders.
+    bool CanUnlockAll() const { return !m_listing.folders.empty() || !m_listing.items.empty(); }
 
     int Tiles() const { return (int)m_listing.items.size(); }
 
@@ -903,8 +902,8 @@ private:
     }
 
     // Items are unlocked for every profile: the shared XUID (activated offline
-    // profiles) and each Xbox Live profile's own. Installed items get the XUIDs
-    // of Live profiles that turned up since added here.
+    // profiles) and each Xbox Live profile's own. Items unlocked before a Live
+    // profile turned up show as not unlocked again, for unlocking once more.
     void OpenItems()
     {
         // The drive picked before stays picked while it's there; the app's own
@@ -916,9 +915,7 @@ private:
             if (m_drives[i].name == picked)
                 m_driveIndex = (int)i;
         m_licensees = ItemLicensees();
-        InstallAllResult updated = UpdateInstalledItems(m_licensees, m_drives);
-        xsdk_log_write("items: %d licensees, %d installed items updated, %d failed", (int)m_licensees.size(),
-                       updated.installed, updated.failed);
+        xsdk_log_write("items: %d licensees", (int)m_licensees.size());
         m_screenId = kScreenItems;
         m_folder.clear();
         m_positions.clear();
@@ -926,21 +923,17 @@ private:
         m_scroll = 0;
         m_folderIndexBuilt = false;   // the folders may have changed since
         RescanFolder();
-        char summary[96];
-        if (updated.failed > 0)
+
+        // A signed-in offline profile can't wear the items yet: offer to
+        // activate it, once per profile while the app runs.
+        ProfileEntry offline;
+        if (FindSignedInOfflineProfile(&offline) &&
+            std::find(m_declinedActivations.begin(), m_declinedActivations.end(), offline.info.offlineXuid) ==
+                m_declinedActivations.end())
         {
-            snprintf(summary, sizeof summary, "%d unlocked, %d failed.", updated.installed, updated.failed);
-            std::vector<std::string> lines(1, "Unlocking items again for new profiles:");
-            lines.push_back(summary);
-            for (size_t i = 0; i < updated.errors.size(); i++)
-                lines.push_back(updated.errors[i]);
-            ShowMessage("Partly done", lines);
-        }
-        else if (updated.installed > 0)
-        {
-            snprintf(summary, sizeof summary, "%d item%s now also unlocked for new profiles", updated.installed,
-                     updated.installed == 1 ? "" : "s");
-            ShowToast("Unlocked for new profiles", summary, std::vector<u32>());
+            m_signedInOffline = offline;
+            m_optionIndex = 0;
+            m_overlay = kOverlayConfirmSignedInActivate;
         }
     }
 
@@ -1088,19 +1081,23 @@ private:
             StartSearch();
             return;
         }
+        if (pressed & kButtonX)
+        {
+            if (CanUnlockAll())
+            {
+                m_optionIndex = DriveRows();   // on "Unlock all", below the drive
+                m_overlay = kOverlayAddAllActions;
+            }
+            return;
+        }
         MoveInItems(pressed);
         if (!(pressed & kButtonA) || ListRows() + Tiles() == 0)
             return;
 
         int rows = ListRows();
-        if (m_selected == 0)
+        if (m_selected < rows)
         {
-            m_optionIndex = DriveRows();   // on "Unlock all", below the drive
-            m_overlay = kOverlayAddAllActions;
-        }
-        else if (m_selected < rows)
-        {
-            const std::string& name = m_listing.folders[m_selected - 1];
+            const std::string& name = m_listing.folders[m_selected];
             OpenFolder(m_folder.empty() ? name : m_folder + "\\" + name, false);
         }
         else
@@ -1178,21 +1175,10 @@ private:
                 DrawTile(c, x, y, m_listing.items[i - rows], i == m_selected, i - rows);
                 continue;
             }
-            if (i == 0)
-            {
-                DrawRowCard(c, x, y, w, i == m_selected, false, kColorGreen);
-                DrawAddAllIcon(c, kMarginX, y);
-                DrawBoldText(c, textX, y - 2, m_folder.empty() ? "Unlock all items" : "Unlock all items in this folder",
-                             kColorWhite, 1, textW);
-                c.DrawText(textX, y + 30, "Subfolders included", 0xFFE3EDDC, 1, textW);
-            }
-            else
-            {
-                const std::string& name = m_listing.folders[i - 1];
-                DrawRowCard(c, x, y, w, i == m_selected, true);
-                DrawFolderIcon(c, kMarginX, y, name);
-                c.DrawText(textX, y + 14, name, kColorText, 1, textW);
-            }
+            const std::string& name = m_listing.folders[i];
+            DrawRowCard(c, x, y, w, i == m_selected, true);
+            DrawFolderIcon(c, kMarginX, y, name);
+            c.DrawText(textX, y + 14, name, kColorText, 1, textW);
         }
         c.ResetClip();
         DrawScrollBar(c, ContentHeight(), m_scroll);
@@ -1216,9 +1202,9 @@ private:
             DrawBoldText(c, kMarginX, kInfoY, item->name, kColorText, 1, nameEnd - kMarginX);
         }
 
-        bool onFolder = m_selected > 0 && m_selected < ListRows();
+        bool onFolder = m_selected < ListRows();
         DrawFooter(c, std::string(onFolder ? "A open" : "A unlock") + "   B " + (m_positions.empty() ? "back" : "up") +
-                          "   Y search   LB/RB page");
+                          (CanUnlockAll() ? "   X unlock all" : "") + "   Y search   LB/RB page");
     }
 
     // The unlock dialogs start with a row that picks the drive, when there's
@@ -1228,12 +1214,12 @@ private:
     std::string DriveOption() const { return "Unlock on:  < " + m_drives[m_driveIndex].name + " >"; }
 
     // "Unlocked", or "Unlocked on USB 1" when there was a choice.
-    std::string UnlockedTitle(const std::string& suffix) const
+    std::string UnlockedTitle() const
     {
-        return (DriveRows() ? "Unlocked on " + m_drives[m_driveIndex].name : std::string("Unlocked")) + suffix;
+        return DriveRows() ? "Unlocked on " + m_drives[m_driveIndex].name : std::string("Unlocked");
     }
 
-    void Install(bool removeSource)
+    void Install()
     {
         const Item* item = SelectedItem();
         if (!item)
@@ -1243,44 +1229,29 @@ private:
         std::vector<u32> icon = item->icon;
         std::string error;
         const Drive& drive = m_drives[m_driveIndex];
-        bool installed = InstallItemFile(item->path, removeSource, m_licensees, drive, &error);
-        if (!installed)
+        if (!InstallItemFile(item->path, m_licensees, drive, &error))
         {
-            if (removeSource)
-                RescanFolder();   // it may be installed, with only the delete failed
             ShowMessage("Not unlocked", std::vector<std::string>(1, name + ": " + error));
             return;
         }
         // Only this tile changed; a large folder isn't read again for it.
-        if (removeSource)
-        {
-            m_listing.items.erase(m_listing.items.begin() + tile);
-            m_tileImages.erase(m_tileImages.begin() + tile);
-            int total = ListRows() + Tiles();
-            if (m_selected >= total)
-                m_selected = total > 0 ? total - 1 : 0;
-            ScrollToSelected();
-        }
-        else
-        {
-            Item& installedItem = m_listing.items[tile];
-            installedItem.installed = true;
-            if (std::find(installedItem.installedOn.begin(), installedItem.installedOn.end(), drive.name) ==
-                installedItem.installedOn.end())
-                installedItem.installedOn.push_back(drive.name);
-        }
-        ShowToast(UnlockedTitle(removeSource ? ", file removed" : ""), name, icon);
+        Item& installedItem = m_listing.items[tile];
+        installedItem.installed = true;
+        if (std::find(installedItem.installedOn.begin(), installedItem.installedOn.end(), drive.name) ==
+            installedItem.installedOn.end())
+            installedItem.installedOn.push_back(drive.name);
+        ShowToast(UnlockedTitle(), name, icon);
     }
 
-    void InstallAll(bool removeSource)
+    void InstallAll()
     {
-        InstallAllResult result = InstallAllItems(m_folder, removeSource, m_licensees, m_drives[m_driveIndex]);
+        InstallAllResult result = InstallAllItems(m_folder, m_licensees, m_drives[m_driveIndex]);
         RescanFolder();
         char summary[96];
         if (result.failed == 0)
         {
             snprintf(summary, sizeof summary, "%d item%s", result.installed, result.installed == 1 ? "" : "s");
-            ShowToast(UnlockedTitle(removeSource ? ", files removed" : ""), summary, std::vector<u32>());
+            ShowToast(UnlockedTitle(), summary, std::vector<u32>());
             return;
         }
         snprintf(summary, sizeof summary, "%d unlocked, %d failed.", result.installed, result.failed);
@@ -1605,9 +1576,9 @@ private:
             {
                 char xuid[48];
                 if (p.info.onlineXuid)
-                    snprintf(xuid, sizeof xuid, "XUID %016llX", (unsigned long long)p.info.onlineXuid);
+                    snprintf(xuid, sizeof xuid, "XUID: %016llX", (unsigned long long)p.info.onlineXuid);
                 else
-                    snprintf(xuid, sizeof xuid, "offline XUID %016llX", (unsigned long long)p.info.offlineXuid);
+                    snprintf(xuid, sizeof xuid, "Offline XUID: %016llX", (unsigned long long)p.info.offlineXuid);
                 int xuidX = textX + Canvas::TextWidth(p.info.gamertag) + 32;
                 c.DrawText(xuidX, y - 2, xuid, kColorDim, 1, driveX - 24 - xuidX);
             }
@@ -1616,12 +1587,13 @@ private:
             c.DrawText(textX, y + 30, state, color, 1, driveX - 24 - textX);
         }
         c.ResetClip();
-        DrawFooter(c, "A choose   B back");
+        DrawFooter(c, "A activate   B back");
     }
 
-    void Activate()
+    // `signedOut`: the app signed the profile out for this, so the message
+    // says to sign in again.
+    void Activate(ProfileEntry& p, bool signedOut)
     {
-        ProfileEntry& p = m_profiles[m_profileIndex];
         std::string backup;
         std::string error;
         if (!ActivateProfile(p, &backup, &error))
@@ -1633,8 +1605,26 @@ private:
         xsdk_log_write("activated %s, backup %s", p.info.gamertag.c_str(), backup.c_str());
         p.info.kind = kProfileActivated;
         std::vector<std::string> lines(1, p.info.gamertag + " is activated.");
-        lines.push_back("Backup: " + backup);
+        lines.push_back("Backup: " + ShownPath(backup));
+        if (signedOut)
+            lines.push_back("Sign in again to wear unlocked items.");
         ShowMessage("Done", lines);
+    }
+
+    // The profile found signed in when "Unlock Items" opened.
+    void SignOutAndActivate()
+    {
+        ProfileEntry& p = m_signedInOffline;
+        std::string error;
+        if (!SignOutProfile(p, &error))
+        {
+            std::vector<std::string> lines(1, p.info.gamertag + ": " + error);
+            lines.push_back("Sign it out in the Guide, then activate it");
+            lines.push_back("under Activate Offline Profile.");
+            ShowMessage("Not activated", lines);
+            return;
+        }
+        Activate(p, true);
     }
 
     void SaveTakenScreenshot()
@@ -1668,9 +1658,24 @@ private:
                 m_overlay = kOverlayNone;
             return;
         }
+        if (m_overlay == kOverlayConfirmSignedInActivate)
+        {
+            if (pressed & (kButtonUp | kButtonDown))
+                m_optionIndex = 1 - m_optionIndex;
+            bool activate = (pressed & kButtonA) && m_optionIndex == 0;
+            if (activate)
+                StartWork(kWorkSignOutAndActivate, "Signing out and activating " + m_signedInOffline.info.gamertag);
+            else if (pressed & (kButtonA | kButtonB))
+            {
+                // Not asked again for this profile until the app restarts.
+                m_declinedActivations.push_back(m_signedInOffline.info.offlineXuid);
+                m_overlay = kOverlayNone;
+            }
+            return;
+        }
         bool installing = m_overlay == kOverlayItemActions || m_overlay == kOverlayAddAllActions;
         int driveRows = installing ? DriveRows() : 0;
-        int options = m_overlay == kOverlayConfirmActivate ? 2 : 3 + driveRows;
+        int options = 2 + driveRows;   // the action and Cancel, below the drive row
         if (pressed & kButtonUp)
             m_optionIndex = (m_optionIndex + options - 1) % options;
         if (pressed & kButtonDown)
@@ -1692,15 +1697,12 @@ private:
         }
         if (!(pressed & kButtonA))
             return;
-        int action = m_optionIndex - driveRows;
         if (m_optionIndex == options - 1)   // Cancel
             m_overlay = kOverlayNone;
         else if (m_overlay == kOverlayItemActions && SelectedItem())
-            StartWork(action == 0 ? kWorkInstall : kWorkInstallAndRemove,
-                      "Unlocking " + SelectedItem()->name + " on " + m_drives[m_driveIndex].name);
+            StartWork(kWorkInstall, "Unlocking " + SelectedItem()->name + " on " + m_drives[m_driveIndex].name);
         else if (m_overlay == kOverlayAddAllActions)
-            StartWork(action == 0 ? kWorkInstallAll : kWorkInstallAllAndRemove,
-                      "Unlocking all items on " + m_drives[m_driveIndex].name + "...");
+            StartWork(kWorkInstallAll, "Unlocking all items on " + m_drives[m_driveIndex].name + "...");
 
         else
             StartWork(kWorkActivate, "Activating " + m_profiles[m_profileIndex].info.gamertag);
@@ -1743,6 +1745,8 @@ private:
     std::vector<ProfileEntry> m_profiles;
     int m_profileIndex;
     int m_profileScroll;
+    ProfileEntry m_signedInOffline;             // offered for activation when "Unlock Items" opened
+    std::vector<u64> m_declinedActivations;     // offline XUIDs answered with "Not now"
 
     int m_optionIndex;
     std::string m_messageTitle;

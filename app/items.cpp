@@ -168,13 +168,24 @@ static std::string Upper(const std::string& text)
     return out;
 }
 
+// Reads the start of the file at `path` (below AvatarItems) into `header`; false
+// unless it is a package of an avatar item. Other files in the folders (notes,
+// pictures, other packages) are left out of the listing and of "Unlock all".
+static bool ReadAvatarItemHeader(const std::string& path, std::vector<u8>* header, StfsHeader* h)
+{
+    std::string error;
+    return ReadFilePrefix(FullPath(path), kItemHeaderBytes, header) && !header->empty() &&
+           StfsParseHeader(&(*header)[0], (u32)header->size(), h, &error) && h->contentType == kContentTypeAvatarItem;
+}
+
 // The first stage, for listing: the header's start only (the display name ends
 // at 0x1711), no hash check, no preview. `installed` comes from whether a file
-// of the patched name is in a Content folder; LoadItemDetails checks it.
-static Item ReadItemHeader(const std::string& relative, const std::string& fileName,
-                           const std::set<std::string>& installedNames)
+// of the patched name is in a Content folder; LoadItemDetails checks it. False
+// for a file that isn't an avatar item.
+static bool ReadItemHeader(const std::string& relative, const std::string& fileName,
+                           const std::set<std::string>& installedNames, Item* out)
 {
-    Item item;
+    Item& item = *out;
     item.path = Join(relative, fileName);
     item.name = fileName;
     item.body = kAvatarBodyUnknown;
@@ -183,26 +194,15 @@ static Item ReadItemHeader(const std::string& relative, const std::string& fileN
 
     std::vector<u8> header;
     StfsHeader h;
-    if (!ReadFilePrefix(FullPath(item.path), kItemHeaderBytes, &header) ||
-        !StfsParseHeader(header.empty() ? NULL : &header[0], (u32)header.size(), &h, &item.error))
-    {
-        if (item.error.empty()) item.error = "cannot read the file";
-        item.detailsLoaded = true;   // nothing more to load
-        return item;
-    }
-    if (h.contentType != kContentTypeAvatarItem)
-    {
-        item.error = std::string("not an avatar item (content type: ") + StfsContentTypeName(h.contentType) + ")";
-        item.detailsLoaded = true;
-        return item;
-    }
+    if (!ReadAvatarItemHeader(item.path, &header, &h))
+        return false;
     // Avatar items' display names start with a slash ("/Ducktales Logo Tee").
     if (!h.displayName.empty())
         item.name = h.displayName[0] == '/' ? h.displayName.substr(1) : h.displayName;
     item.body = AvatarItemBodyType(&header[0]);
     item.installedName = AvatarItemPatchedFileName(&header[0], kAvatarDefaultTitleId);
     item.installed = installedNames.count(Upper(item.installedName)) != 0;
-    return item;
+    return true;
 }
 
 void LoadItemDetails(Item* item, const std::vector<u64>& licensees, const std::vector<Drive>& drives)
@@ -257,7 +257,11 @@ ItemListing ScanItemFolder(const std::string& relative, const std::vector<Drive>
     std::vector<std::string> files = ListFolder(full, false);
     listing.items.reserve(files.size());
     for (size_t i = 0; i < files.size(); i++)
-        listing.items.push_back(ReadItemHeader(relative, files[i], installedNames));
+    {
+        Item item;
+        if (ReadItemHeader(relative, files[i], installedNames, &item))
+            listing.items.push_back(item);
+    }
     std::sort(listing.items.begin(), listing.items.end(), ItemLess);
 
     listing.folders = ListFolder(full, true);
@@ -314,8 +318,8 @@ std::vector<std::string> SearchFolders(const std::vector<std::string>& index, co
     return matches;
 }
 
-bool InstallItemFile(const std::string& path, bool removeSource, const std::vector<u64>& licensees,
-                     const Drive& drive, std::string* error)
+bool InstallItemFile(const std::string& path, const std::vector<u64>& licensees, const Drive& drive,
+                     std::string* error)
 {
     std::string source = FullPath(path);
     std::vector<u8> data;
@@ -342,11 +346,6 @@ bool InstallItemFile(const std::string& path, bool removeSource, const std::vect
         *error = "cannot write to the Content folder on " + drive.name;
         return false;
     }
-    if (removeSource && !DeleteFile(source))
-    {
-        *error = "unlocked, but the file could not be deleted";
-        return false;
-    }
     return true;
 }
 
@@ -357,62 +356,33 @@ static void AddFailure(InstallAllResult* result, const std::string& name, const 
         result->errors.push_back(name + ": " + error);
 }
 
-static void InstallAllIn(const std::string& relative, bool removeSource, const std::vector<u64>& licensees,
-                         const Drive& drive, InstallAllResult* result)
+static void InstallAllIn(const std::string& relative, const std::vector<u64>& licensees, const Drive& drive,
+                         InstallAllResult* result)
 {
     std::string full = FullPath(relative);
     std::vector<std::string> files = ListFolder(full, false);
     for (size_t i = 0; i < files.size(); i++)
     {
+        std::vector<u8> header;
+        StfsHeader h;
+        if (!ReadAvatarItemHeader(Join(relative, files[i]), &header, &h))
+            continue;   // not an item, as in the listing
         std::string error;
-        if (InstallItemFile(Join(relative, files[i]), removeSource, licensees, drive, &error))
+        if (InstallItemFile(Join(relative, files[i]), licensees, drive, &error))
             result->installed++;
         else
             AddFailure(result, files[i], error);
     }
     std::vector<std::string> folders = ListFolder(full, true);
     for (size_t i = 0; i < folders.size(); i++)
-        InstallAllIn(Join(relative, folders[i]), removeSource, licensees, drive, result);
+        InstallAllIn(Join(relative, folders[i]), licensees, drive, result);
 }
 
-InstallAllResult InstallAllItems(const std::string& relative, bool removeSource, const std::vector<u64>& licensees,
-                                 const Drive& drive)
+InstallAllResult InstallAllItems(const std::string& relative, const std::vector<u64>& licensees, const Drive& drive)
 {
     InstallAllResult result;
     result.installed = 0;
     result.failed = 0;
-    InstallAllIn(relative, removeSource, licensees, drive, &result);
-    return result;
-}
-
-InstallAllResult UpdateInstalledItems(const std::vector<u64>& licensees, const std::vector<Drive>& drives)
-{
-    InstallAllResult result;
-    result.installed = 0;
-    result.failed = 0;
-    for (size_t d = 0; d < drives.size(); d++)
-    {
-        std::string folder = InstalledFolder(drives[d]);
-        std::vector<std::string> files = ListFolder(folder, false);
-        for (size_t i = 0; i < files.size(); i++)
-        {
-            std::string path = folder + files[i];
-            if (InstalledFor(path, licensees))
-                continue;
-            std::vector<u8> data;
-            std::string error;
-            // Entry [1] stays as it is; what's missing goes into free entries.
-            AvatarPatchOptions options = PatchOptions(licensees);
-            options.setXuid = false;
-            if (!ReadWholeFile(path, &data) || data.empty())
-                AddFailure(&result, files[i], "cannot read the file");
-            else if (!AvatarItemPatch(&data[0], (u32)data.size(), options, &error))
-                AddFailure(&result, files[i], error);
-            else if (!WriteWholeFile(path, &data[0], (u32)data.size()))
-                AddFailure(&result, files[i], "cannot write the file");
-            else
-                result.installed++;
-        }
-    }
+    InstallAllIn(relative, licensees, drive, &result);
     return result;
 }

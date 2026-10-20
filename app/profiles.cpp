@@ -11,9 +11,18 @@
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
+#include <time.h>
 
 // Profiles live in Content\<offline xuid>\FFFE07D1\00010000\<offline xuid>.
 static const char* kProfileSubfolder = "\\FFFE07D1\\00010000\\";
+
+// XamUserLogon's flags (kernel_extra.h): RemoveUser, and NoPopupNotification,
+// as XeLive's sign-out passes it, so the system shows no "signed out" notification.
+static const u32 kLogonRemoveUser = 0x08;
+static const u32 kLogonNoPopupNotification = 0x20;
+// How long SignOutProfile waits for the profile to be signed out and its file free, checking this often.
+static const int kSignOutWaitMs = 10000;
+static const int kSignOutPollMs = 250;
 
 static bool IsOfflineXuidName(const std::string& name)
 {
@@ -217,6 +226,69 @@ int FirstSignedInUser(std::string* gamertag)
     return -1;
 }
 
+bool FindSignedInOfflineProfile(ProfileEntry* out)
+{
+    std::vector<ProfileEntry> profiles = ScanProfiles();
+    for (size_t i = 0; i < profiles.size(); i++)
+    {
+        const ProfileEntry& p = profiles[i];
+        if (p.signedIn && p.error.empty() && p.info.kind == kProfileOffline && !p.path.empty())
+        {
+            *out = p;
+            return true;
+        }
+    }
+    return false;
+}
+
+static void SleepMs(int ms)
+{
+    struct timespec interval = { ms / 1000, (long)(ms % 1000) * 1000000 };
+    nanosleep(&interval, NULL);
+}
+
+bool SignOutProfile(const ProfileEntry& entry, std::string* error)
+{
+    // The XUID goes in the profile's own slot, in case the system goes by the
+    // slot rather than the list (XeLive's calls do).
+    static u64 xuids[4];
+    memset(xuids, 0, sizeof xuids);
+    for (u32 user = 0; user < 4; user++)
+    {
+        SignedInInfo info;
+        if (GetSignedInInfo(user, &info) && info.offlineXuid == entry.info.offlineXuid)
+            xuids[user] = entry.info.offlineXuid;
+    }
+    bool found = false;
+    for (u32 user = 0; user < 4; user++)
+        found = found || xuids[user] != 0;
+    if (!found)
+        xuids[0] = entry.info.offlineXuid;   // only matched by gamertag: let the system look it up
+    u32 result = XamUserLogon(xuids, kLogonRemoveUser | kLogonNoPopupNotification, NULL);
+    xsdk_log_write("sign out %s: XamUserLogon returned 0x%08X", entry.info.gamertag.c_str(), (unsigned)result);
+
+    // Signed out isn't enough: the system may hold the file a little longer.
+    std::vector<u8> data;
+    for (int waited = 0; waited <= kSignOutWaitMs; waited += kSignOutPollMs)
+    {
+        if (!IsSignedIn(entry.info.offlineXuid, entry.info.gamertag) && ReadWholeFile(entry.path, &data) &&
+            !data.empty())
+        {
+            xsdk_log_write("sign out %s: file free after %d ms", entry.info.gamertag.c_str(), waited);
+            return true;
+        }
+        SleepMs(kSignOutPollMs);
+    }
+    char code[16];
+    snprintf(code, sizeof code, "0x%08X", (unsigned)result);
+    if (IsSignedIn(entry.info.offlineXuid, entry.info.gamertag))
+        *error = std::string("not signed out (") + code + ")";
+    else
+        *error = "signed out, but its file is still in use";
+    xsdk_log_write("sign out %s: %s", entry.info.gamertag.c_str(), error->c_str());
+    return false;
+}
+
 u32 LaunchAvatarEditor(int user)
 {
     xsdk_log_write("avatar editor: launching for user %d", user);
@@ -299,7 +371,7 @@ bool ActivateProfile(const ProfileEntry& entry, std::string* backupPath, std::st
 
     if (!WriteWholeFile(entry.path, &data[0], (u32)data.size()))
     {
-        *error = "writing the profile failed; restore it from " + *backupPath;
+        *error = "writing the profile failed; restore it from " + ShownPath(*backupPath);
         return false;
     }
     return true;

@@ -48,7 +48,8 @@ const char* ItemsFolder();
 std::vector<u64> ItemLicensees();
 
 // Reads a folder below AvatarItems ("" for AvatarItems itself): the start of
-// each item's header only, so large folders open quickly. `installed` means a
+// each item's header only, so large folders open quickly. Files that aren't
+// avatar item packages are left out. `installed` means a
 // copy is in a Content folder until LoadItemDetails checks its license.
 ItemListing ScanItemFolder(const std::string& relative, const std::vector<Drive>& drives);
 
@@ -67,10 +68,10 @@ std::vector<std::string> SearchFolders(const std::vector<std::string>& index, co
 std::string FolderName(const std::string& relative);
 
 // Patches the package at `path` (below AvatarItems) for the licensees and writes
-// it to Content on `drive`, keeping XUIDs the copy there already had; with
-// `removeSource` the file is deleted once that worked.
-bool InstallItemFile(const std::string& path, bool removeSource, const std::vector<u64>& licensees,
-                     const Drive& drive, std::string* error);
+// it to Content on `drive`, keeping XUIDs the copy there already had. The file
+// itself stays, so unlocking it again adds profiles found since.
+bool InstallItemFile(const std::string& path, const std::vector<u64>& licensees, const Drive& drive,
+                     std::string* error);
 
 struct InstallAllResult
 {
@@ -80,10 +81,4 @@ struct InstallAllResult
 };
 
 // Installs every file in the folder and its subfolders to `drive`.
-InstallAllResult InstallAllItems(const std::string& relative, bool removeSource, const std::vector<u64>& licensees,
-                                 const Drive& drive);
-
-// Adds the licensees missing from the items already installed on any of the
-// drives, so profiles found later get them too, even when the source files are
-// gone. `installed` counts the items that were changed.
-InstallAllResult UpdateInstalledItems(const std::vector<u64>& licensees, const std::vector<Drive>& drives);
+InstallAllResult InstallAllItems(const std::string& relative, const std::vector<u64>& licensees, const Drive& drive);
