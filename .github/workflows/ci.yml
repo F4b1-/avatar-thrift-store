@@ -1,4 +1,4 @@
-# The PC part on every push and pull request: core, avtool and the unit tests,
+# The desktop tools on every push and pull request: core, avtool and the unit tests,
 # with MSVC (as build_pc.ps1 builds them) and with GCC on Linux, which catches
 # code that only builds on Windows. The console app needs xsdk's toolchain and
 # isn't built here.
@@ -28,9 +28,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Configure
-        run: cmake -S . -B build/pc -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-Wall -Wextra"
-      - name: Build
-        run: cmake --build build/pc --parallel
-      - name: Test
-        run: ctest --test-dir build/pc --output-on-failure
+      - name: Build and test
+        run: ./build_pc.sh

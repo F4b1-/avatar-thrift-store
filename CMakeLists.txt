@@ -1,5 +1,5 @@
-# PC build: core library, avtool CLI and unit tests.
-# The Xbox 360 app is built separately with build_xbox.ps1 (XDK toolchain).
+# Desktop tools: core library, avtool CLI and unit tests.
+# The Xbox 360 app is built separately with build_xbox.sh / build_xbox.ps1 (xsdk).
 cmake_minimum_required(VERSION 3.20)
 project(avatar_thrift_store CXX)
 

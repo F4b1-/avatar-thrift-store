@@ -1,6 +1,6 @@
 # The console app, built with xsdk (https://github.com/xenosworks/xsdk) in WSL:
 #   cmake -S app -B build/xbox -G Ninja -DCMAKE_TOOLCHAIN_FILE=<xsdk>/cmake/xsdk.cmake
-# build_xbox.ps1 does this. The PC tools are the top-level CMakeLists.txt.
+# build_xbox.sh does this. The desktop tools are the top-level CMakeLists.txt.
 cmake_minimum_required(VERSION 3.25)
 project(AvatarThriftStore C CXX ASM)
 

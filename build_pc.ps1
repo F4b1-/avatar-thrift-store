@@ -1,5 +1,6 @@
-# Builds the PC targets (core, avtool, core_tests) with the CMake bundled in
-# Visual Studio and runs the tests.
+# Builds the desktop tools (core, avtool, core_tests) and runs the tests. Needs
+# CMake 3.20 or later on PATH and a C++11 compiler. CMake uses Visual Studio by
+# default; for another compiler, set CMAKE_GENERATOR (e.g. Ninja) and CXX first.
 #   .\build_pc.ps1            Release build + tests
 #   .\build_pc.ps1 -Config Debug
 param([string]$Config = "Release")
@@ -7,18 +8,15 @@ param([string]$Config = "Release")
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 
-$vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-$vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-if (-not $vs) { throw "Visual Studio with C++ tools not found" }
+if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
+    throw "cmake not found on PATH (winget install Kitware.CMake)"
+}
 
-$cmake = "$vs\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
-$ctest = "$vs\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\ctest.exe"
-
-& $cmake -S $root -B "$root\build\pc" -A x64
+& cmake -S $root -B "$root\build\pc"
 if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
-& $cmake --build "$root\build\pc" --config $Config
+& cmake --build "$root\build\pc" --config $Config
 if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
-& $ctest --test-dir "$root\build\pc" -C $Config --output-on-failure
+& ctest --test-dir "$root\build\pc" -C $Config --output-on-failure
 exit $LASTEXITCODE
