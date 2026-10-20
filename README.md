@@ -30,10 +30,11 @@ avatar items are included; bring your own (easy to find online).
 4. Offline profiles: Sign the profile out, then activate it under
    **Activate Offline Profile**. Xbox Live profiles need nothing. Profiles on
    the hard drive and on USB sticks are listed.
-5. **Unlock Items**: unlock single items (or *Unlock all items*), then **Avatar Editor** to
+5. **Unlock Items**: unlock single items (or all of them with X), then **Avatar Editor** to
    put them on.
 
-Controls: D-pad/left stick, A open/unlock, B back, Y search, LB/RB page, BACK quit.
+Controls: D-pad/left stick, A open/unlock, X unlock all items in the folder, B back, Y search,
+LB/RB page, BACK quit.
 Pull both triggers for a screenshot (PNG in `AvatarThriftStore\Screenshots`).
 In the avatar editor, items only show for an avatar of their gender. The app lists them all,
 with an **M** or **F** badge on each tile (an item's male version comes first).

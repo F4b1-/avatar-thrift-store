@@ -9,8 +9,8 @@
 // 360mpGui's offline-to-online maker does, and re-signs it with this
 // console's own key. The README's "Key findings" describe the formats behind both.
 //
-// Controls: D-pad/left stick to move, LB/RB a page, A to open or unlock, B to go back,
-// Y to search, BACK to quit.
+// Controls: D-pad/left stick to move, LB/RB a page, A to open or unlock, X to unlock
+// all items in a folder, B to go back, Y to search, BACK to quit.
 
 #include "gfx.h"
 #include "items.h"
@@ -359,14 +359,6 @@ static void DrawFolderIcon(Canvas& c, int x, int y, const std::string& name)
     c.FillRoundRect(x + 4, y + 4, 56, 56, 16, kBrights[NameHash(name) % 5]);
     c.FillRoundRect(x + 16, y + 18, 16, 10, 4, kColorWhite);
     c.FillRoundRect(x + 16, y + 23, 32, 22, 5, kColorWhite);
-}
-
-// A white disc with a green plus, the "Unlock all" row, in a 64 x 64 cell.
-static void DrawAddAllIcon(Canvas& c, int x, int y)
-{
-    c.FillCircle(x + 32, y + 32, 28, kColorWhite);
-    c.FillRoundRect(x + 28, y + 14, 8, 36, 4, kColorGreen);
-    c.FillRoundRect(x + 14, y + 28, 36, 8, 4, kColorGreen);
 }
 
 // The preview, already scaled to `size` (`scaled`), or a placeholder without one.
@@ -840,13 +832,12 @@ private:
         DrawFooter(c, "A select   BACK quit");
     }
 
-    // --- items: a list ("Unlock all", then the folders) above a grid of item tiles
+    // --- items: a list of the folders above a grid of item tiles; X unlocks them all
 
-    int ListRows() const
-    {
-        bool any = !m_listing.folders.empty() || !m_listing.items.empty();
-        return (any ? 1 : 0) + (int)m_listing.folders.size();
-    }
+    int ListRows() const { return (int)m_listing.folders.size(); }
+
+    // Whether "Unlock all" (X) has anything to look through: items here or subfolders.
+    bool CanUnlockAll() const { return !m_listing.folders.empty() || !m_listing.items.empty(); }
 
     int Tiles() const { return (int)m_listing.items.size(); }
 
@@ -1088,19 +1079,23 @@ private:
             StartSearch();
             return;
         }
+        if (pressed & kButtonX)
+        {
+            if (CanUnlockAll())
+            {
+                m_optionIndex = DriveRows();   // on "Unlock all", below the drive
+                m_overlay = kOverlayAddAllActions;
+            }
+            return;
+        }
         MoveInItems(pressed);
         if (!(pressed & kButtonA) || ListRows() + Tiles() == 0)
             return;
 
         int rows = ListRows();
-        if (m_selected == 0)
+        if (m_selected < rows)
         {
-            m_optionIndex = DriveRows();   // on "Unlock all", below the drive
-            m_overlay = kOverlayAddAllActions;
-        }
-        else if (m_selected < rows)
-        {
-            const std::string& name = m_listing.folders[m_selected - 1];
+            const std::string& name = m_listing.folders[m_selected];
             OpenFolder(m_folder.empty() ? name : m_folder + "\\" + name, false);
         }
         else
@@ -1178,21 +1173,10 @@ private:
                 DrawTile(c, x, y, m_listing.items[i - rows], i == m_selected, i - rows);
                 continue;
             }
-            if (i == 0)
-            {
-                DrawRowCard(c, x, y, w, i == m_selected, false, kColorGreen);
-                DrawAddAllIcon(c, kMarginX, y);
-                DrawBoldText(c, textX, y - 2, m_folder.empty() ? "Unlock all items" : "Unlock all items in this folder",
-                             kColorWhite, 1, textW);
-                c.DrawText(textX, y + 30, "Subfolders included", 0xFFE3EDDC, 1, textW);
-            }
-            else
-            {
-                const std::string& name = m_listing.folders[i - 1];
-                DrawRowCard(c, x, y, w, i == m_selected, true);
-                DrawFolderIcon(c, kMarginX, y, name);
-                c.DrawText(textX, y + 14, name, kColorText, 1, textW);
-            }
+            const std::string& name = m_listing.folders[i];
+            DrawRowCard(c, x, y, w, i == m_selected, true);
+            DrawFolderIcon(c, kMarginX, y, name);
+            c.DrawText(textX, y + 14, name, kColorText, 1, textW);
         }
         c.ResetClip();
         DrawScrollBar(c, ContentHeight(), m_scroll);
@@ -1216,9 +1200,9 @@ private:
             DrawBoldText(c, kMarginX, kInfoY, item->name, kColorText, 1, nameEnd - kMarginX);
         }
 
-        bool onFolder = m_selected > 0 && m_selected < ListRows();
+        bool onFolder = m_selected < ListRows();
         DrawFooter(c, std::string(onFolder ? "A open" : "A unlock") + "   B " + (m_positions.empty() ? "back" : "up") +
-                          "   Y search   LB/RB page");
+                          (CanUnlockAll() ? "   X unlock all" : "") + "   Y search   LB/RB page");
     }
 
     // The unlock dialogs start with a row that picks the drive, when there's
