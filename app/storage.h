@@ -32,5 +32,9 @@ bool WriteWholeFile(const std::string& path, const u8* data, u32 size);
 // below `root` (a drive root, or "game:").
 bool MakeDirs(const std::string& root, const std::string& relative);
 
+// A path for showing: "game:\Backups\x" -> "Backups\x", as a user finds it next
+// to the app (game: means nothing outside it). Other paths stay as they are.
+std::string ShownPath(const std::string& path);
+
 // Names in a folder (no "." or ".."), files or folders only.
 std::vector<std::string> ListFolder(const std::string& path, bool folders);

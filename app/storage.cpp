@@ -127,6 +127,12 @@ bool WriteWholeFile(const std::string& path, const u8* data, u32 size)
     return ReadWholeFile(path, &back) && back.size() == size && (size == 0 || memcmp(&back[0], data, size) == 0);
 }
 
+std::string ShownPath(const std::string& path)
+{
+    static const std::string kAppFolder = "game:\\";
+    return path.compare(0, kAppFolder.size(), kAppFolder) == 0 ? path.substr(kAppFolder.size()) : path;
+}
+
 bool MakeDirs(const std::string& root, const std::string& relative)
 {
     std::string path = root;

@@ -1605,7 +1605,7 @@ private:
         xsdk_log_write("activated %s, backup %s", p.info.gamertag.c_str(), backup.c_str());
         p.info.kind = kProfileActivated;
         std::vector<std::string> lines(1, p.info.gamertag + " is activated.");
-        lines.push_back("Backup: " + backup);
+        lines.push_back("Backup: " + ShownPath(backup));
         if (signedOut)
             lines.push_back("Sign in again to wear unlocked items.");
         ShowMessage("Done", lines);

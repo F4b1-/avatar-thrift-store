@@ -371,7 +371,7 @@ bool ActivateProfile(const ProfileEntry& entry, std::string* backupPath, std::st
 
     if (!WriteWholeFile(entry.path, &data[0], (u32)data.size()))
     {
-        *error = "writing the profile failed; restore it from " + *backupPath;
+        *error = "writing the profile failed; restore it from " + ShownPath(*backupPath);
         return false;
     }
     return true;
