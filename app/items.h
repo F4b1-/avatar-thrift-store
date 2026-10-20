@@ -48,7 +48,8 @@ const char* ItemsFolder();
 std::vector<u64> ItemLicensees();
 
 // Reads a folder below AvatarItems ("" for AvatarItems itself): the start of
-// each item's header only, so large folders open quickly. `installed` means a
+// each item's header only, so large folders open quickly. Files that aren't
+// avatar item packages are left out. `installed` means a
 // copy is in a Content folder until LoadItemDetails checks its license.
 ItemListing ScanItemFolder(const std::string& relative, const std::vector<Drive>& drives);
 
