@@ -29,7 +29,9 @@ avatar items are included; bring your own (easy to find online).
 3. Start `AvatarThriftStore.xex` from Aurora or FSD.
 4. Offline profiles: Sign the profile out, then activate it under
    **Activate Offline Profile**. Xbox Live profiles need nothing. Profiles on
-   the hard drive and on USB sticks are listed.
+   the hard drive and on USB sticks are listed. If an offline profile is still
+   signed in when you open **Unlock Items**, the app offers to sign it out and
+   activate it for you.
 5. **Unlock Items**: unlock single items (or all of them with X), then **Avatar Editor** to
    put them on.
 

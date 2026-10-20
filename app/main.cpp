@@ -7,7 +7,9 @@
 // picked in the dialog; the app's own drive first).
 // "Activate Offline Profile": gives an offline profile that XUID, the way
 // 360mpGui's offline-to-online maker does, and re-signs it with this
-// console's own key. The README's "Key findings" describe the formats behind both.
+// console's own key. Opening "Unlock Items" offers that for a signed-in offline
+// profile too, signing it out first. The README's "Key findings" describe the
+// formats behind both.
 //
 // Controls: D-pad/left stick to move, LB/RB a page, A to open or unlock, X to unlock
 // all items in a folder, B to go back, Y to search, BACK to quit.
@@ -475,6 +477,7 @@ enum Overlay
     kOverlayItemActions,
     kOverlayAddAllActions,
     kOverlayConfirmActivate,
+    kOverlayConfirmSignedInActivate,
     kOverlayMessage,
     kOverlayWorking,
     kOverlayKeyboard,
@@ -490,6 +493,7 @@ enum PendingWork
     kWorkIndexFolders,
     kWorkScanProfiles,
     kWorkActivate,
+    kWorkSignOutAndActivate,
     kWorkScreenshot,
 };
 
@@ -586,7 +590,10 @@ public:
                 m_profileIndex = 0;
             break;
         case kWorkActivate:
-            Activate();
+            Activate(m_profiles[m_profileIndex], false);
+            break;
+        case kWorkSignOutAndActivate:
+            SignOutAndActivate();
             break;
         case kWorkScreenshot:
             SaveTakenScreenshot();
@@ -654,6 +661,18 @@ public:
             options.push_back("Activate " + p.info.gamertag);
             options.push_back("Cancel");
             DrawDialog(c, "Activate offline profile", lines, options, m_optionIndex);
+        }
+        else if (m_overlay == kOverlayConfirmSignedInActivate)
+        {
+            const std::string& gamertag = m_signedInOffline.info.gamertag;
+            std::vector<std::string> lines;
+            lines.push_back(gamertag + " is an offline profile.");
+            lines.push_back("You need to activate it to unlock avatar items.");
+            lines.push_back("Do you want to log out and activate the profile?");
+            std::vector<std::string> options;
+            options.push_back("Activate " + gamertag);
+            options.push_back("Not now");
+            DrawDialog(c, "Activate signed-in profile?", lines, options, m_optionIndex);
         }
 
         else if (m_overlay == kOverlayMessage)
@@ -909,6 +928,18 @@ private:
         m_scroll = 0;
         m_folderIndexBuilt = false;   // the folders may have changed since
         RescanFolder();
+
+        // A signed-in offline profile can't wear the items yet: offer to
+        // activate it, once per profile while the app runs.
+        ProfileEntry offline;
+        if (FindSignedInOfflineProfile(&offline) &&
+            std::find(m_declinedActivations.begin(), m_declinedActivations.end(), offline.info.offlineXuid) ==
+                m_declinedActivations.end())
+        {
+            m_signedInOffline = offline;
+            m_optionIndex = 0;
+            m_overlay = kOverlayConfirmSignedInActivate;
+        }
     }
 
     // Loads one tile's details (full check, preview, license) and scales its
@@ -1564,9 +1595,10 @@ private:
         DrawFooter(c, "A choose   B back");
     }
 
-    void Activate()
+    // `signedOut`: the app signed the profile out for this, so the message
+    // says to sign in again.
+    void Activate(ProfileEntry& p, bool signedOut)
     {
-        ProfileEntry& p = m_profiles[m_profileIndex];
         std::string backup;
         std::string error;
         if (!ActivateProfile(p, &backup, &error))
@@ -1579,7 +1611,25 @@ private:
         p.info.kind = kProfileActivated;
         std::vector<std::string> lines(1, p.info.gamertag + " is activated.");
         lines.push_back("Backup: " + backup);
+        if (signedOut)
+            lines.push_back("Sign in again to wear unlocked items.");
         ShowMessage("Done", lines);
+    }
+
+    // The profile found signed in when "Unlock Items" opened.
+    void SignOutAndActivate()
+    {
+        ProfileEntry& p = m_signedInOffline;
+        std::string error;
+        if (!SignOutProfile(p, &error))
+        {
+            std::vector<std::string> lines(1, p.info.gamertag + ": " + error);
+            lines.push_back("Sign it out in the Guide, then activate it");
+            lines.push_back("under Activate Offline Profile.");
+            ShowMessage("Not activated", lines);
+            return;
+        }
+        Activate(p, true);
     }
 
     void SaveTakenScreenshot()
@@ -1611,6 +1661,21 @@ private:
         {
             if (pressed & (kButtonA | kButtonB))
                 m_overlay = kOverlayNone;
+            return;
+        }
+        if (m_overlay == kOverlayConfirmSignedInActivate)
+        {
+            if (pressed & (kButtonUp | kButtonDown))
+                m_optionIndex = 1 - m_optionIndex;
+            bool activate = (pressed & kButtonA) && m_optionIndex == 0;
+            if (activate)
+                StartWork(kWorkSignOutAndActivate, "Signing out and activating " + m_signedInOffline.info.gamertag);
+            else if (pressed & (kButtonA | kButtonB))
+            {
+                // Not asked again for this profile until the app restarts.
+                m_declinedActivations.push_back(m_signedInOffline.info.offlineXuid);
+                m_overlay = kOverlayNone;
+            }
             return;
         }
         bool installing = m_overlay == kOverlayItemActions || m_overlay == kOverlayAddAllActions;
@@ -1685,6 +1750,8 @@ private:
     std::vector<ProfileEntry> m_profiles;
     int m_profileIndex;
     int m_profileScroll;
+    ProfileEntry m_signedInOffline;             // offered for activation when "Unlock Items" opened
+    std::vector<u64> m_declinedActivations;     // offline XUIDs answered with "Not now"
 
     int m_optionIndex;
     std::string m_messageTitle;

@@ -4,5 +4,6 @@
 # xenia:src/xenia/kernel/xam/xam_table.inc.
 
 xboxkrnl.exe  0x256  XeKeysConsolePrivateKeySign
+xam.xex       0x20B  XamUserLogon
 xam.xex       0x227  XamUserGetSigninInfo
 xam.xex       0x7DB  XamLaunchAvatarEditor

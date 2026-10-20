@@ -29,6 +29,13 @@ struct XUserSigninInfo
 // is unconfirmed, so profiles.cpp asks with both and sorts the answers.
 uint32_t XamUserGetSigninInfo(uint32_t userIndex, uint32_t flags, XUserSigninInfo* info);
 
+// Signs users in or out. `xuids` holds one XUID per user slot (0-3), 0 for none. With flag 0x08 (RemoveUser) each
+// listed XUID that is signed in is signed out: the Blades dashboard signs a profile out that way, passing its
+// offline XUID (logged in xenia-canary PR #436). Flag values from xenia-canary src/xenia/kernel/xam/xam.h
+// (UserLogonFlags), the slot layout from XeLive's ForceSignOut, which also passes `overlapped` as NULL to have the
+// call finish before it returns. None of it is confirmed on this console; profiles.cpp checks the outcome.
+uint32_t XamUserLogon(const uint64_t* xuids, uint32_t flags, void* overlapped);
+
 // Leaves the running title for the avatar editor. Three arguments, as the
 // dashboard (dash.xex, its only call, at 0x927DABE0) passes them: the user
 // index (0-3) and two values it always sets to 0, meaning unknown. With only
