@@ -637,8 +637,8 @@ public:
         }
         else if (m_overlay == kOverlayAddAllActions)
         {
-            std::vector<std::string> lines(1, m_folder.empty() ? "Every item in AvatarItems," : "Every item in this folder,");
-            lines.push_back("subfolders included.");
+            std::vector<std::string> lines;
+			lines.push_back("Unlock every item in this folder and below?");
             std::vector<std::string> options;
             if (DriveRows())
                 options.push_back(DriveOption());
@@ -650,13 +650,8 @@ public:
         {
             const ProfileEntry& p = m_profiles[m_profileIndex];
             std::vector<std::string> lines;
-            char xuid[24];
-            snprintf(xuid, sizeof xuid, "%016llX", (unsigned long long)kSharedOnlineXuid);
-            lines.push_back("New online XUID for " + p.info.gamertag + ":");
-            lines.push_back(std::string("  ") + xuid);
-            lines.push_back("(the same for every activated profile)");
-            lines.push_back("Re-signed with this console's key; a backup");
-            lines.push_back("is saved to Backups first.");
+            lines.push_back("Do you want to activate the profile");
+            lines.push_back(p.info.gamertag + "?");
             std::vector<std::string> options;
             options.push_back("Activate " + p.info.gamertag);
             options.push_back("Cancel");
@@ -1581,9 +1576,9 @@ private:
             {
                 char xuid[48];
                 if (p.info.onlineXuid)
-                    snprintf(xuid, sizeof xuid, "XUID %016llX", (unsigned long long)p.info.onlineXuid);
+                    snprintf(xuid, sizeof xuid, "XUID: %016llX", (unsigned long long)p.info.onlineXuid);
                 else
-                    snprintf(xuid, sizeof xuid, "offline XUID %016llX", (unsigned long long)p.info.offlineXuid);
+                    snprintf(xuid, sizeof xuid, "Offline XUID: %016llX", (unsigned long long)p.info.offlineXuid);
                 int xuidX = textX + Canvas::TextWidth(p.info.gamertag) + 32;
                 c.DrawText(xuidX, y - 2, xuid, kColorDim, 1, driveX - 24 - xuidX);
             }
@@ -1592,7 +1587,7 @@ private:
             c.DrawText(textX, y + 30, state, color, 1, driveX - 24 - textX);
         }
         c.ResetClip();
-        DrawFooter(c, "A choose   B back");
+        DrawFooter(c, "A activate   B back");
     }
 
     // `signedOut`: the app signed the profile out for this, so the message
