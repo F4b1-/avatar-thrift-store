@@ -1,0 +1,2 @@
+# Shell scripts keep LF endings in every checkout: bash fails on the carriage returns Git adds on Windows.
+*.sh text eol=lf

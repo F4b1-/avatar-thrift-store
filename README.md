@@ -175,9 +175,11 @@ The key findings are documented here for use in future projects.
 
 ## Building
 
-**Console app** (WSL Debian with CMake, Ninja and Python 3). xsdk is a git
-submodule in `third_party/xsdk`, at the version the app is built with; its
-toolchain is built once, into `~/xsdk-gcc`:
+**Console app** (Linux, or WSL Debian on Windows, with CMake, Ninja and
+Python 3). xsdk is a git submodule in `third_party/xsdk`, at the version the
+app is built with; its toolchain is built once, into `~/xsdk-gcc`:
+
+On Windows:
 
 ```powershell
 git submodule update --init                   # after cloning (or clone with --recursive)
@@ -186,14 +188,34 @@ wsl -d Debian bash third_party/xsdk/tools/toolchain/build.sh   # once; takes a w
 .\tools\package_release.ps1 -Version 0.3.0    # -> dist\AvatarThriftStore-v0.3.0.zip
 ```
 
+On Linux:
+
+```bash
+git submodule update --init                      # after cloning (or clone with --recursive)
+bash third_party/xsdk/tools/toolchain/build.sh   # once; takes a while
+./build_xbox.sh                                  # -> build/xbox/AvatarThriftStore.xex
+```
+
 The title id is `41565453` ("AVTS"), so Aurora keeps the app's cover and
 settings apart from other xsdk titles. The app writes a log next to itself
 (`AvatarThriftStore.log`).
 
-**PC tools** (Visual Studio with C++; uses its bundled CMake):
+**Desktop tools** (avtool and the unit tests):
+
+- [CMake](https://cmake.org/) 3.20 or newer, on your PATH
+- A C++11 compiler: on Windows, Visual Studio with the "Desktop development
+  with C++" workload is recommended; on Linux, GCC or Clang
+
+On Windows:
 
 ```powershell
 .\build_pc.ps1    # avtool + unit tests
+```
+
+On Linux:
+
+```bash
+./build_pc.sh     # -> build/linux
 ```
 
 `avtool` does the same steps on a PC (`info`, `patch`, `set-xuid`,
