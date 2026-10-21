@@ -6,7 +6,7 @@ which normally can't wear marketplace items at all. Everything happens on the
 console; no PC tools needed. Built with [xsdk](https://github.com/xenosworks/xsdk),
 no Microsoft SDK required.
 
-![Browsing Fable items in Avatar Thrift Store](screenshots/AvatarThriftStore_004.png)
+![Browsing Fable items in Avatar Thrift Store](screenshots/AvatarThriftStore_005.png)
 
 - **Unlock Items**: browse a folder of item packages (with previews and search)
   and unlock them for every profile on the console.
@@ -189,7 +189,7 @@ On Windows:
 git submodule update --init                   # after cloning (or clone with --recursive)
 wsl -d Debian bash third_party/xsdk/tools/toolchain/build.sh   # once; takes a while
 .\build_xbox.ps1                              # -> build\xbox\AvatarThriftStore.xex
-.\tools\package_release.ps1 -Version 0.3.0    # -> dist\AvatarThriftStore-v0.3.0.zip
+.\tools\package_release.ps1 -Version 0.4.0    # -> dist\AvatarThriftStore-v0.4.0.zip
 ```
 
 On Linux:
