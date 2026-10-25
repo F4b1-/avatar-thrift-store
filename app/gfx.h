@@ -56,6 +56,9 @@ private:
     int m_clipX0, m_clipY0, m_clipX1, m_clipY1;
 };
 
+// The canvas is always 1280x720, the size the layout is made for. Where the
+// front buffer has another size (interlaced and non-16:9 outputs get the
+// kernel's mode), the canvas is scaled into it, letterboxed to 16:9 on the TV.
 class Screen
 {
 public:
@@ -68,7 +71,16 @@ public:
     void Present();
 
 private:
+    // Scales the canvas into m_frame, inside black borders.
+    void BuildFrame();
+
     Canvas m_canvas;
     u32 m_version;
     u32 m_bufferVersion[2];
+    int m_frontWidth;
+    int m_frontHeight;
+    // Where the canvas goes in the front buffer, when it's scaled.
+    int m_viewX, m_viewY, m_viewW, m_viewH;
+    std::vector<u32> m_frame;   // the front buffer's picture, when scaled
+    u32 m_frameVersion;
 };
