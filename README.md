@@ -114,7 +114,7 @@ Unlocking an item, end to end: `main.cpp` takes the button press,
 
 ## Key findings
 
-Some of the features of this app came from having AI reverse engineer outdated windows executables
+Some of the features of this app came from having AI reverse engineer older windows executables (credits go to the original devs)
 the community used in the past. These programs have, for the most part, no publicly available source code.
 The key findings are documented here for use in future projects.
 
