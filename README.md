@@ -189,7 +189,7 @@ On Windows:
 git submodule update --init                   # after cloning (or clone with --recursive)
 wsl -d Debian bash third_party/xsdk/tools/toolchain/build.sh   # once; takes a while
 .\build_xbox.ps1                              # -> build\xbox\AvatarThriftStore.xex
-.\tools\package_release.ps1 -Version 0.4.0    # -> dist\AvatarThriftStore-v0.4.0.zip
+.\tools\package_release.ps1 -Version 0.4.1    # -> dist\AvatarThriftStore-v0.4.1.zip
 ```
 
 On Linux:
