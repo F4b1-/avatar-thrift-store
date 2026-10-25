@@ -4,6 +4,7 @@
 
 #include "xsdk/gpu.h"
 #include "xsdk/kernel.h"
+#include "xsdk/log.h"
 #include "xsdk/present.h"
 
 #include <math.h>
@@ -14,6 +15,11 @@ enum
     kFrontBuffers = 2,
     kSwapInterval = 1,
     kPresentTimeoutMs = 1000,
+    kCanvasWidth = 1280,
+    kCanvasHeight = 720,
+    // Share of an SD picture used, in percent: SD TVs cut off more of the
+    // edges than HD ones, which the layout's margins are made for.
+    kSdSafePercent = 90,
 };
 
 void Canvas::Clear(u32 color)
@@ -256,21 +262,113 @@ void Canvas::ScaleImage(const u32* pixels, int sw, int sh, int w, int h, std::ve
 
 bool Screen::Open(int* status)
 {
+    // xsdk's 1280x720 front buffer is only tried on 720p and 1080p outputs
+    // (third_party/xsdk/docs/HARDWARE.md); interlaced ones get the kernel's mode
+    // anyway, and a 1280x1024 output stayed black with it. So anything
+    // else takes the kernel's mode, and the canvas is scaled into it here.
+    VIDEO_MODE video;
+    memset(&video, 0, sizeof video);
+    VdQueryVideoMode(&video);
+    bool tested = !video.is_interlaced &&
+        ((video.display_width == 1280 && video.display_height == 720) ||
+         (video.display_width == 1920 && video.display_height == 1080));
     uint32_t width = 0;
     uint32_t height = 0;
     NTSTATUS s = xsdk_gpu_open();
     if (NT_SUCCESS(s))
-        s = xsdk_present_open(XSDK_DISPLAY_720P, kFrontBuffers, kSwapInterval, &width, &height);
+        s = xsdk_present_open(tested ? XSDK_DISPLAY_720P : XSDK_DISPLAY_KERNEL, kFrontBuffers, kSwapInterval, &width,
+                              &height);
     *status = (int)s;
     if (!NT_SUCCESS(s))
         return false;
-    m_canvas.m_width = (int)width;
-    m_canvas.m_height = (int)height;
-    m_canvas.m_pixels.assign(width * height, 0xFF000000);
+    m_canvas.m_width = kCanvasWidth;
+    m_canvas.m_height = kCanvasHeight;
+    m_canvas.m_pixels.assign(kCanvasWidth * kCanvasHeight, 0xFF000000);
     m_canvas.ResetClip();
     m_version = 1;
     m_bufferVersion[0] = m_bufferVersion[1] = 0;
+    m_frontWidth = (int)width;
+    m_frontHeight = (int)height;
+    m_viewX = m_viewY = 0;
+    m_viewW = m_frontWidth;
+    m_viewH = m_frontHeight;
+    m_frame.clear();
+    m_frameVersion = 0;
+    if (m_frontWidth != kCanvasWidth || m_frontHeight != kCanvasHeight)
+    {
+        // The front buffer is stretched over the whole output, so on the TV it
+        // has the output's shape: an HD mode's own, else 4:3 or 16:9 as set.
+        u32 aspectW = video.display_width;
+        u32 aspectH = video.display_height;
+        if (!video.is_hi_def || !aspectW || !aspectH)
+        {
+            aspectW = video.is_widescreen ? 16 : 4;
+            aspectH = video.is_widescreen ? 9 : 3;
+        }
+        // 16:9 inside that: bars above and below on a narrower output, at the sides on a wider one.
+        if (16 * aspectH > 9 * aspectW)
+            m_viewH = (int)((u64)m_frontHeight * 9 * aspectW / (16 * aspectH));
+        else
+            m_viewW = (int)((u64)m_frontWidth * 16 * aspectH / (9 * aspectW));
+        if (!video.is_hi_def)
+        {
+            m_viewW = m_viewW * kSdSafePercent / 100;
+            m_viewH = m_viewH * kSdSafePercent / 100;
+        }
+        m_viewX = (m_frontWidth - m_viewW) / 2;
+        m_viewY = (m_frontHeight - m_viewH) / 2;
+        m_frame.assign(width * height, 0xFF000000);
+    }
+    xsdk_log_write("screen: output %ux%u, interlaced %u, widescreen %u, hi-def %u; front buffer %ux%u, canvas at %d,%d "
+                   "as %dx%d",
+                   (unsigned)video.display_width, (unsigned)video.display_height, (unsigned)video.is_interlaced,
+                   (unsigned)video.is_widescreen, (unsigned)video.is_hi_def, (unsigned)width, (unsigned)height,
+                   m_viewX, m_viewY, m_viewW, m_viewH);
     return true;
+}
+
+// The mean of two pixels, each channel rounded down.
+static inline u32 Average(u32 a, u32 b)
+{
+    return (a & b) + (((a ^ b) & 0xFEFEFEFE) >> 1);
+}
+
+void Screen::BuildFrame()
+{
+    const u32* pixels = &m_canvas.m_pixels[0];
+    int sw = kCanvasWidth;
+    int sh = kCanvasHeight;
+    // Bilinear filtering skips source pixels below half size, and thin text
+    // with them, so each such direction is halved first by averaging pairs.
+    int stepX = m_viewW <= sw / 2 ? 2 : 1;
+    int stepY = m_viewH <= sh / 2 ? 2 : 1;
+    std::vector<u32> reduced;
+    if (stepX > 1 || stepY > 1)
+    {
+        int rw = sw / stepX;
+        int rh = sh / stepY;
+        reduced.resize(rw * rh);
+        for (int row = 0; row < rh; row++)
+        {
+            const u32* top = pixels + row * stepY * sw;
+            const u32* bottom = top + (stepY - 1) * sw;
+            u32* out = &reduced[row * rw];
+            for (int col = 0; col < rw; col++)
+            {
+                int x0 = col * stepX;
+                int x1 = x0 + stepX - 1;
+                out[col] = Average(Average(top[x0], top[x1]), Average(bottom[x0], bottom[x1]));
+            }
+        }
+        pixels = &reduced[0];
+        sw = rw;
+        sh = rh;
+    }
+    std::vector<u32> scaled;
+    Canvas::ScaleImage(pixels, sw, sh, m_viewW, m_viewH, &scaled);
+    // The borders around it stay black.
+    for (int row = 0; row < m_viewH; row++)
+        memcpy(&m_frame[(m_viewY + row) * m_frontWidth + m_viewX], &scaled[row * m_viewW], m_viewW * sizeof(u32));
 }
 
 // tiled_index comes from libxenon:drivers/console/console.c:60-61 (as xsdk's
@@ -317,18 +415,23 @@ void Screen::Present()
     {
         if (xsdk_present_buffer_address(i) != address || m_bufferVersion[i] == m_version)
             continue;
+        if (!m_frame.empty() && m_frameVersion != m_version)
+        {
+            BuildFrame();
+            m_frameVersion = m_version;
+        }
+        const u32* pixels = m_frame.empty() ? &m_canvas.m_pixels[0] : &m_frame[0];
         // The front buffer stores each pixel's bytes B, G, R, A, and is
         // write-combined memory: volatile 32-bit stores only.
         volatile uint32_t* front = xsdk_present_pixels(address);
-        const Canvas& c = m_canvas;
-        for (int y = 0; y < c.m_height; y++)
+        for (int y = 0; y < m_frontHeight; y++)
         {
-            const u32* line = &c.m_pixels[y * c.m_width];
+            const u32* line = &pixels[y * m_frontWidth];
             // Inside a tile, runs of 4 pixels (x & 3) are next to each other,
             // so the address is worked out once per run.
-            for (int x = 0; x < c.m_width; x += 4)
+            for (int x = 0; x < m_frontWidth; x += 4)
             {
-                volatile uint32_t* run = front + TiledIndex(x, y, c.m_width);
+                volatile uint32_t* run = front + TiledIndex(x, y, m_frontWidth);
                 run[0] = __builtin_bswap32(line[x]);
                 run[1] = __builtin_bswap32(line[x + 1]);
                 run[2] = __builtin_bswap32(line[x + 2]);
