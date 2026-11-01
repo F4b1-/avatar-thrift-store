@@ -6,7 +6,7 @@ which normally can't wear marketplace items at all. Everything happens on the
 console; no PC tools needed. Built with [xsdk](https://github.com/xenosworks/xsdk),
 no Microsoft SDK required.
 
-![Browsing Fable items in Avatar Thrift Store](screenshots/AvatarThriftStore_005.png)
+![The main menu of Avatar Thrift Store: Unlock Items, Activate Offline Profile and Avatar Editor](screenshots/AvatarThriftStore_main_menu.png)
 
 - **Unlock Items**: browse a folder of item packages (with previews and search)
   and unlock them for every profile on the console.

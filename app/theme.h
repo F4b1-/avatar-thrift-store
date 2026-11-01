@@ -6,8 +6,8 @@
 
 // A cosy store at night: dark forest-green surfaces with cream text, muted
 // spotlights behind the items, sage and amber accents. Colours are ARGB.
-static const u32 kColorSkyTop      = 0xFF345E17;   // background, top
-static const u32 kColorSkyBottom   = 0xFF1B3608;   // background, bottom
+static const u32 kColorSkyTop      = 0xFF223029;   // background, top
+static const u32 kColorSkyBottom   = 0xFF141B18;   // background, bottom
 static const u32 kColorGlow        = 0x02F3D9A8;   // faint glow behind the title, drawn many times over
 static const u32 kColorCard        = 0xFF2A3631;   // rows, dialogs, menu cards
 static const u32 kColorCardPicked  = 0xFF33413A;   // a selected row or tile

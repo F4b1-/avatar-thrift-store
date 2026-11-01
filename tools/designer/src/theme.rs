@@ -42,8 +42,8 @@ impl Default for Theme {
     // The app's design as shipped.
     fn default() -> Self {
         Theme {
-            sky_top: 0xFF345E17,
-            sky_bottom: 0xFF1B3608,
+            sky_top: 0xFF223029,
+            sky_bottom: 0xFF141B18,
             glow: 0x02F3D9A8,
             card: 0xFF2A3631,
             card_picked: 0xFF33413A,
