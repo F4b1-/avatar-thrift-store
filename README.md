@@ -109,7 +109,7 @@ third_party/   stb_image (PNG reading and writing) and xsdk (a submodule)
 - **`tools/avtool`** runs the `core/` steps on files on a PC, for testing on
   copies without a console; **`tests/`** covers `core/`.
 - **`tools/designer`** (Rust) edits `app/theme.h` and the menu cards'
-  pictures with a live preview of the screens; see [Changing the design](#changing-the-design).
+  pictures with a live preview of the screens.
 
 Unlocking an item, end to end: `main.cpp` takes the button press,
 `items.cpp` reads the package through `storage.cpp`,
