@@ -230,39 +230,6 @@ On Linux:
 `verify-sig`, ...); `set-xuid` doesn't sign, so resign its output with another
 tool.
 
-### Changing the design
-
-The colours and layout numbers live in `app/theme.h`, the pictures at the top
-of the three main menu cards in `app/menu_art.h`. `tools/designer` edits both
-on the PC with a live preview of the menu, the item grid, the item dialog, the
-toast and the profiles, drawn by a port of the app's canvas with the app's own
-font (the items in it are made up). It needs [Rust](https://rustup.rs/):
-
-```powershell
-cd tools\designer
-cargo run --release             # the editor; "Save" writes app\theme.h and app\menu_art.h
-cargo run --release -- --png .  # every screen as a PNG, without a window
-cargo test                      # reading and writing the headers, layout checks
-```
-
-It refuses to save layouts the app can't draw (a grid wider than the screen,
-a preview bigger than its tile) and warns about ones that will look off
-(outside the TV's title-safe area, text with little contrast). After saving,
-rebuild the xex to see the change on the console. The preview's drawing is a
-copy of `main.cpp`'s, so a change to how the app draws a screen needs the same
-change in `tools/designer/src/screens.rs`.
-
-Each menu card's picture has two layers, set on their own under **Menu
-cards**: the background (a three-colour gradient or an image file, with
-optional stripes, glow and a clothes hanger) and the object in front of it (the shirt, the
-person with a tick, the hanger, an image file, or nothing), with its colours,
-size, position, shadow and sparkles. The designer draws them as SVG (with
-resvg) at the cards' width for the current `kMarginX`, and embeds them in
-`app/menu_art.h` as PNGs together with the settings, so it can read them back.
-An image file is only read when the cards are drawn: keep it where it is to
-change the card again later. `menu_art.h` is committed, so use only images
-you made or may share.
-
 ## License
 
 MIT, see [LICENSE](LICENSE). Third-party code and the font:
