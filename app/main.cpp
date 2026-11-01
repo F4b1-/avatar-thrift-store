@@ -19,6 +19,7 @@
 #include "menu_art.h"
 #include "profiles.h"
 #include "screenshot.h"
+#include "theme.h"
 #include "../core/account.h"
 #include "stb_image.h"
 
@@ -33,41 +34,6 @@
 #include <algorithm>
 #include <string>
 #include <vector>
-
-// A cosy store at night: dark forest-green surfaces with cream text, muted
-// spotlights behind the items, sage and amber accents.
-static const u32 kColorSkyTop      = 0xFF223029;
-static const u32 kColorSkyBottom   = 0xFF141B18;
-static const u32 kColorCard        = 0xFF2A3631;   // rows, dialogs, menu cards
-static const u32 kColorCardPicked  = 0xFF33413A;
-static const u32 kColorGreen       = 0xFF6FA35A;
-static const u32 kColorGreenDark   = 0xFF4E7A40;
-static const u32 kColorWhite       = 0xFFFAF5EC;
-static const u32 kColorText        = 0xFFECE5D8;   // on dark surfaces
-static const u32 kColorDim         = 0xFF98A39C;
-static const u32 kColorGood        = 0xFF8CC475;
-static const u32 kColorWarn        = 0xFFE3AE4F;
-static const u32 kColorBad         = 0xFFE07A5F;
-static const u32 kColorKey         = 0xFF36443E;
-static const u32 kColorShade       = 0x80000000;   // behind dialogs
-
-// Spotlights behind item previews, and icon colors picked by name.
-static const u32 kPastels[5] = { 0xFF3D5245, 0xFF3A4A55, 0xFF4D4238, 0xFF453F52, 0xFF4C4A36 };
-static const u32 kBrights[5] = { 0xFF6FA35A, 0xFF5B8DB8, 0xFFC9824F, 0xFF8C76B0, 0xFFC9A44A };
-
-// Inside the title-safe area of a TV.
-static const int kMarginX = 80;
-static const int kListTop = 152;
-static const int kRowHeight = 78;
-static const int kViewBottom = 592;      // lists and the item grid scroll above this
-static const int kInfoY = 604;           // the selected item's name and state
-static const int kFooterY = 652;
-
-// Item tiles: 5 across, the 128 x 128 preview shown at 152 x 152.
-static const int kTileColumns = 5;
-static const int kTileWidth = 224;
-static const int kTileHeight = 212;
-static const int kTileImage = 152;
 
 static const char* kAppName = "Avatar Thrift Store";
 static const int kMenuCards = 3;
@@ -248,25 +214,14 @@ static void DrawBackground(Canvas& c)
     c.FillGradient(0, 0, c.Width(), c.Height(), kColorSkyTop, kColorSkyBottom);
     // Many faint discs, smaller towards the middle, so the glow fades out smoothly.
     for (int radius = 420; radius > 0; radius -= 20)
-        c.FillCircle(260, 20, radius, 0x02F3D9A8);
+        c.FillCircle(260, 20, radius, kColorGlow);
     c.SaveTo(&s_background);
-}
-
-// A shopping bag, 56 x 60.
-static void DrawBagIcon(Canvas& c, int x, int y)
-{
-    c.FillRoundRect(x + 14, y, 28, 30, 14, kColorGreenDark);
-    c.FillRoundRect(x + 19, y + 5, 18, 26, 9, kColorSkyTop);
-    c.FillRoundRect(x + 2, y + 18, 52, 44, 10, 0x40000000);
-    c.FillRoundRect(x, y + 14, 56, 46, 10, kColorGreen);
-    c.FillRoundRect(x + 14, y + 26, 28, 6, 3, kColorGreenDark);
 }
 
 static void DrawHeader(Canvas& c, const std::string& subtitle)
 {
     DrawBackground(c);
-    DrawBagIcon(c, kMarginX, 54);
-    int titleX = kMarginX + 76;
+    int titleX = kMarginX;
     DrawBoldText(c, titleX + 2, 52, kAppName, 0x60000000, 2);
     DrawBoldText(c, titleX, 50, kAppName, kColorText, 2);
     // The current place, if any, on a small label.
@@ -279,7 +234,7 @@ static void DrawHeader(Canvas& c, const std::string& subtitle)
         c.FillRoundRect(chipX, 62, chipW, 44, 22, kColorCard);
         c.DrawText(chipX + 20, 68, subtitle, kColorDim, 1, chipW - 40);
     }
-    c.FillRect(kMarginX, 128, c.Width() - 2 * kMarginX, 2, 0x1AF3ECE0);
+    c.FillRect(kMarginX, 128, c.Width() - 2 * kMarginX, 2, kColorLine);
 }
 
 // A controller button: a coloured disc for A/B/X/Y, a grey pill for the rest.
@@ -288,14 +243,14 @@ static int DrawButtonGlyph(Canvas& c, int x, int y, const std::string& button)
 {
     if (button.size() == 1)
     {
-        u32 color = button == "A" ? kColorGreen : button == "B" ? 0xFFC8604F : button == "X" ? 0xFF5B8DB8 : 0xFFD9A441;
+        u32 color = button == "A" ? kColorGreen : button == "B" ? kColorButtonB : button == "X" ? kColorButtonX : kColorButtonY;
         c.FillCircle(x + 18, y + 18, 18, color);
         c.DrawText(x + 10, y + 2, button, kColorWhite);
         c.DrawText(x + 11, y + 2, button, kColorWhite);
         return 36;
     }
     int w = Canvas::TextWidth(button) + 24;
-    c.FillRoundRect(x, y, w, 36, 18, 0xFF4A5751);
+    c.FillRoundRect(x, y, w, 36, 18, kColorButtonPill);
     c.DrawText(x + 12, y + 2, button, kColorWhite);
     return w;
 }
@@ -445,7 +400,7 @@ static void DrawScrollBar(Canvas& c, int contentHeight, int scroll)
     if (contentHeight <= viewHeight)
         return;
     int x = c.Width() - kMarginX + 24;
-    c.FillRoundRect(x, kListTop, 8, viewHeight, 4, 0x1AF3ECE0);
+    c.FillRoundRect(x, kListTop, 8, viewHeight, 4, kColorLine);
     int barHeight = viewHeight * viewHeight / contentHeight;
     barHeight = barHeight < 24 ? 24 : barHeight;
     int barTop = kListTop + (viewHeight - barHeight) * scroll / (contentHeight - viewHeight);
@@ -478,6 +433,7 @@ enum Overlay
     kOverlayAddAllActions,
     kOverlayConfirmActivate,
     kOverlayConfirmSignedInActivate,
+    kOverlayConfirmRepair,
     kOverlayMessage,
     kOverlayWorking,
     kOverlayKeyboard,
@@ -494,6 +450,7 @@ enum PendingWork
     kWorkScanProfiles,
     kWorkActivate,
     kWorkSignOutAndActivate,
+    kWorkRepairAndActivate,
     kWorkScreenshot,
 };
 
@@ -512,7 +469,7 @@ public:
     App(Screen& screen) : m_screen(screen), m_screenId(kScreenMenu), m_overlay(kOverlayNone), m_work(kWorkNone),
         m_workShown(false), m_menuIndex(0), m_selected(0), m_scroll(0), m_folderIndexBuilt(false), m_keyRow(0),
         m_keyColumn(0), m_resultIndex(0), m_resultScroll(0), m_driveIndex(0), m_profileIndex(0), m_profileScroll(0),
-        m_optionIndex(0), m_toastUntil(0), m_quit(false), m_dirty(true) {}
+        m_repairSignedOut(false), m_optionIndex(0), m_toastUntil(0), m_quit(false), m_dirty(true) {}
 
 
     bool Quit() const { return m_quit; }
@@ -590,10 +547,13 @@ public:
                 m_profileIndex = 0;
             break;
         case kWorkActivate:
-            Activate(m_profiles[m_profileIndex], false);
+            Activate(m_profiles[m_profileIndex], false, false);
             break;
         case kWorkSignOutAndActivate:
             SignOutAndActivate();
+            break;
+        case kWorkRepairAndActivate:
+            Activate(RepairProfile(), m_repairSignedOut, true);
             break;
         case kWorkScreenshot:
             SaveTakenScreenshot();
@@ -668,6 +628,18 @@ public:
             options.push_back("Activate " + gamertag);
             options.push_back("Not now");
             DrawDialog(c, "Activate signed-in profile?", lines, options, m_optionIndex);
+        }
+        else if (m_overlay == kOverlayConfirmRepair)
+        {
+            std::vector<std::string> lines;
+            lines.push_back("This profile appears to be out of sync.");
+            lines.push_back("It was probably edited with another tool.");
+            lines.push_back("You may attempt an automatic repair.");
+            lines.push_back("A backup of your profile is made first.");
+            std::vector<std::string> options;
+            options.push_back("Repair and activate");
+            options.push_back("Cancel");
+            DrawDialog(c, "Repair " + RepairProfile().info.gamertag + "?", lines, options, m_optionIndex);
         }
 
         else if (m_overlay == kOverlayMessage)
@@ -804,8 +776,6 @@ private:
             "Get an offline profile ready for unlocked items",
             "Go straight to the dashboard's Avatar Editor",
         };
-        // The card's colour, shown if its picture can't be decoded.
-        static const u32 kHero[kMenuCards] = { 0xFF5E8F4C, 0xFF6E5C8A, 0xFF4F6F8F };
         const int gap = 30;
         const int w = (c.Width() - 2 * kMarginX + 32 - (kMenuCards - 1) * gap) / kMenuCards;
         const int h = 420;
@@ -1592,19 +1562,33 @@ private:
 
     // `signedOut`: the app signed the profile out for this, so the message
     // says to sign in again.
-    void Activate(ProfileEntry& p, bool signedOut)
+    void Activate(ProfileEntry& p, bool signedOut, bool repairHashes)
     {
         std::string backup;
         std::string error;
-        if (!ActivateProfile(p, &backup, &error))
+        ProfileHashState hashes;
+        ActivateResult result = ActivateProfile(p, repairHashes, &hashes, &backup, &error);
+        if (result == kActivateNeedsRepair)
+        {
+            m_repairSignedOut = signedOut;
+            m_optionIndex = 0;
+            m_overlay = kOverlayConfirmRepair;
+            return;
+        }
+        if (result != kActivated)
         {
             xsdk_log_write("activate %s: %s", p.info.gamertag.c_str(), error.c_str());
-            ShowMessage("Not activated", std::vector<std::string>(1, p.info.gamertag + ": " + error));
+            std::vector<std::string> lines(1, p.info.gamertag + ": " + error);
+            if (signedOut)
+                lines.push_back("It's signed out now; sign in again to use it.");
+            ShowMessage("Not activated", lines);
             return;
         }
         xsdk_log_write("activated %s, backup %s", p.info.gamertag.c_str(), backup.c_str());
         p.info.kind = kProfileActivated;
         std::vector<std::string> lines(1, p.info.gamertag + " is activated.");
+        if (hashes.needsRepair)
+            lines.push_back("Its hashes were repaired.");
         lines.push_back("Backup: " + ShownPath(backup));
         if (signedOut)
             lines.push_back("Sign in again to wear unlocked items.");
@@ -1624,7 +1608,13 @@ private:
             ShowMessage("Not activated", lines);
             return;
         }
-        Activate(p, true);
+        Activate(p, true, false);
+    }
+
+    // The profile the repair question is about.
+    ProfileEntry& RepairProfile()
+    {
+        return m_repairSignedOut ? m_signedInOffline : m_profiles[m_profileIndex];
     }
 
     void SaveTakenScreenshot()
@@ -1670,6 +1660,21 @@ private:
                 // Not asked again for this profile until the app restarts.
                 m_declinedActivations.push_back(m_signedInOffline.info.offlineXuid);
                 m_overlay = kOverlayNone;
+            }
+            return;
+        }
+        if (m_overlay == kOverlayConfirmRepair)
+        {
+            if (pressed & (kButtonUp | kButtonDown))
+                m_optionIndex = 1 - m_optionIndex;
+            if ((pressed & kButtonA) && m_optionIndex == 0)
+                StartWork(kWorkRepairAndActivate, "Repairing and activating " + RepairProfile().info.gamertag);
+            else if (pressed & (kButtonA | kButtonB))
+            {
+                std::vector<std::string> lines(1, "Nothing was changed.");
+                if (m_repairSignedOut)
+                    lines.push_back(RepairProfile().info.gamertag + " is signed out; sign in again to use it.");
+                ShowMessage("Not activated", lines);
             }
             return;
         }
@@ -1747,6 +1752,7 @@ private:
     int m_profileScroll;
     ProfileEntry m_signedInOffline;             // offered for activation when "Unlock Items" opened
     std::vector<u64> m_declinedActivations;     // offline XUIDs answered with "Not now"
+    bool m_repairSignedOut;                     // the repair question is about m_signedInOffline
 
     int m_optionIndex;
     std::string m_messageTitle;

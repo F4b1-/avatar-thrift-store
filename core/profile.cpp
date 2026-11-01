@@ -89,6 +89,40 @@ bool ProfileSetOnlineXuid(u8* data, u32 size, u64 xuid, bool markLive, std::stri
     return true;
 }
 
+bool ProfileCheckHashes(const u8* data, u32 size, ProfileHashState* out, std::string* error)
+{
+    StfsHeader header;
+    StfsPackage pkg;
+    if (!OpenProfile(data, size, &header, &pkg, error))
+        return false;
+    StfsHashReport report = pkg.CheckHashes();
+    out->staleBlocks = report.staleBlocks;
+    out->staleTables = report.staleTables;
+    out->needsRepair = report.staleBlocks != 0 || report.staleTables != 0 || report.brokenChains;
+    out->repairable = !report.brokenChains && !report.otherCopyMatches;
+    return true;
+}
+
+bool ProfileRepairHashes(u8* data, u32 size, std::string* error)
+{
+    StfsHeader header;
+    StfsPackage pkg;
+    if (!OpenProfile(data, size, &header, &pkg, error) || !pkg.RewriteHashes(data, error))
+        return false;
+    StfsComputeHeaderHash(data, size, header.headerSize, data + kStfsOffsetHeaderHash);
+
+    StfsPackage check;
+    u32 blocks = 0;
+    u32 tables = 0;
+    if (!check.Open(data, size, error) || check.VerifyAllBlocks(&blocks) != 0 || check.VerifyHashTables(&tables) != 0 ||
+        !StfsParseHeader(data, size, &header, error) || !header.headerHashValid)
+    {
+        if (error) *error = "the repaired profile failed verification";
+        return false;
+    }
+    return true;
+}
+
 bool ProfileApplyConsoleSignature(u8* data, u32 size, const u8* signature, std::string* error)
 {
     if (size < kStfsOffsetSignedData + kStfsSignedDataSize || ReadBE32(data) != 0x434F4E20)   // "CON "

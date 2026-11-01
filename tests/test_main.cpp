@@ -1005,6 +1005,80 @@ static void TestProfileRewrite()
     g_context = NULL;
 }
 
+static void TestProfileRepair()
+{
+    for (size_t c = 0; c < kSynthConfigCount; c++)
+    {
+        const SynthConfig& config = kSynthConfigs[c];
+        g_context = config.label;
+        std::vector<SynthFile> files = SynthProfileFiles(config.bigBlocks);
+        const SynthPackage pkg = MakeStfsPackage(files, SynthOpts(config, kContentTypeProfile, 3));
+        const u32 size = (u32)pkg.bytes.size();
+        std::string error;
+        ProfileHashState state;
+        u32 blocks, tables;
+
+        // A clean profile: nothing to do, and a repair changes nothing.
+        std::vector<u8> bytes = pkg.bytes;
+        CHECK(ProfileCheckHashes(&bytes[0], size, &state, &error));
+        CHECK(!state.needsRepair && state.repairable && state.staleBlocks == 0 && state.staleTables == 0);
+        CHECK(ProfileRepairHashes(&bytes[0], size, &error));
+        CHECK(bytes == pkg.bytes);
+
+        // Another file's block changed without its hash: the case that stops
+        // activation. The repair keeps the data, and activation then works.
+        const u32 damagedAt = pkg.dataOffset[pkg.chains[kSynthGpd][1]] + 10;
+        bytes[damagedAt] ^= 1;
+        const std::vector<u8> damaged = bytes;
+        CHECK(ProfileCheckHashes(&bytes[0], size, &state, &error));
+        CHECK(state.needsRepair && state.repairable && state.staleBlocks == 1 && state.staleTables == 0);
+        CHECK(ProfileRepairHashes(&bytes[0], size, &error));
+        CountMismatches(bytes, &blocks, &tables);
+        CHECK(blocks == 0 && tables == 0);
+        for (size_t b = 0; b < pkg.dataOffset.size(); b++)
+            CHECK(memcmp(&bytes[pkg.dataOffset[b]], &damaged[pkg.dataOffset[b]], 0x1000) == 0);
+        CHECK(ProfileCheckHashes(&bytes[0], size, &state, &error) && !state.needsRepair);
+        CHECK(ProfileSetOnlineXuid(&bytes[0], size, kSharedOnlineXuid, true, &error));
+        ProfileInfo info;
+        CHECK(ProfileInspect(&bytes[0], size, &info, &error) && info.kind == kProfileActivated);
+
+        // A stale table entry, where there is a level above level 0.
+        if (pkg.topLevel >= 1)
+        {
+            bytes = pkg.bytes;
+            bytes[pkg.table1 + 3] ^= 1;
+            CHECK(ProfileCheckHashes(&bytes[0], size, &state, &error));
+            CHECK(state.needsRepair && state.repairable && state.staleBlocks == 0 && state.staleTables == 1);
+            CHECK(ProfileRepairHashes(&bytes[0], size, &error));
+            CountMismatches(bytes, &blocks, &tables);
+            CHECK(blocks == 0 && tables == 0);
+        }
+
+        // Junk in an inactive table copy isn't stale and stays untouched.
+        if (config.male)
+        {
+            bytes = pkg.bytes;
+            bytes[pkg.table0Inactive[0] + 3] ^= 1;
+            CHECK(ProfileCheckHashes(&bytes[0], size, &state, &error) && !state.needsRepair);
+
+            // The changed block's hash is right in the inactive copy: the wrong
+            // copy may be being read, so a repair could break a good profile.
+            bytes = damaged;
+            const u32 entry = (pkg.chains[kSynthGpd][1] % 0xAA) * 0x18;
+            const u32 group = pkg.chains[kSynthGpd][1] / 0xAA;
+            Sha1(&bytes[pkg.dataOffset[pkg.chains[kSynthGpd][1]]], 0x1000, &bytes[pkg.table0Inactive[group] + entry]);
+            const std::vector<u8> before = bytes;
+            CHECK(ProfileCheckHashes(&bytes[0], size, &state, &error));
+            CHECK(state.needsRepair && !state.repairable && state.staleBlocks == 1);
+            error.clear();
+            CHECK(!ProfileRepairHashes(&bytes[0], size, &error));
+            CHECK(error == "the package's hashes can't be repaired safely");
+            CHECK(bytes == before);
+        }
+    }
+    g_context = NULL;
+}
+
 static void TestProfileRefused()
 {
     SynthOptions o = SynthOpts(kSynthConfigs[1], kContentTypeProfile, 0);
@@ -1055,6 +1129,7 @@ int main()
     TestStfsPackageReplace();
     TestStfsPackageDamage();
     TestProfileRewrite();
+    TestProfileRepair();
     TestProfileRefused();
 
     if (g_failures)

@@ -1,0 +1,17 @@
+[package]
+name = "designer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+base64 = "0.23.1"
+eframe = "0.37.0"
+png = "0.18.1"
+resvg = { version = "0.49.0", default-features = false, features = ["raster-images"] }
+rfd = "0.17.2"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+
+# The preview is drawn on the CPU; unoptimised it lags behind the sliders.
+[profile.dev]
+opt-level = 2

@@ -385,3 +385,139 @@ u32 StfsPackage::VerifyAllBlocks(u32* checked) const
     }
     return bad;
 }
+
+bool StfsPackage::UsedBlocks(std::vector<u32>* blocks) const
+{
+    bool whole = true;
+    const u8* vol = m_data + m_volume;
+    if (!BlockChain(ReadLE24(vol + kVolFileTableBlock), ReadLE16(vol + kVolFileTableCount), false, blocks))
+        whole = false;
+    for (size_t i = 0; i < m_files.size(); i++)
+    {
+        const StfsFileEntry& f = m_files[i];
+        if (f.isDirectory || f.size == 0)
+            continue;
+        std::vector<u32> chain;
+        if (!BlockChain(f.startBlock, (f.size + kBlockSize - 1) / kBlockSize, f.consecutive, &chain))
+        {
+            whole = false;
+            continue;
+        }
+        blocks->insert(blocks->end(), chain.begin(), chain.end());
+    }
+    return whole;
+}
+
+u32 StfsPackage::OtherTableCopy(u32 level, u32 block, u32 offset) const
+{
+    if (!m_sex)
+        return 0;
+    u32 first = HashTableOffset(level, block);
+    u32 other = offset == first ? first + kBlockSize : first;
+    return other + kBlockSize <= m_size ? other : 0;
+}
+
+StfsHashReport StfsPackage::CheckHashes() const
+{
+    StfsHashReport report;
+    memset(&report, 0, sizeof report);
+    u8 digest[20];
+
+    std::vector<u32> blocks;
+    if (!UsedBlocks(&blocks))
+        report.brokenChains = true;
+    for (size_t i = 0; i < blocks.size(); i++)
+    {
+        u32 tables[3];
+        if (!ActiveTables(blocks[i], tables))
+        {
+            report.brokenChains = true;
+            continue;
+        }
+        u32 entry = HashEntryIndex(0, blocks[i]) * kHashEntrySize;
+        Sha1(m_data + BlockToOffset(blocks[i]), kBlockSize, digest);
+        if (memcmp(digest, m_data + tables[0] + entry, 20) == 0)
+            continue;
+        report.staleBlocks++;
+        u32 other = OtherTableCopy(0, blocks[i], tables[0]);
+        if (other && memcmp(digest, m_data + other + entry, 20) == 0)
+            report.otherCopyMatches = true;
+    }
+
+    for (u32 block = 0; block < m_allocatedBlocks; block += kBlocksPerTable)
+    {
+        u32 tables[3];
+        if (!ActiveTables(block, tables))
+        {
+            report.brokenChains = true;
+            continue;
+        }
+        for (u32 level = 1; level <= m_topLevel; level++)
+        {
+            if (level == 2 && block % kBlocksPerL1 != 0)
+                continue;
+            const u8* stored = m_data + tables[level] + HashEntryIndex(level, block) * kHashEntrySize;
+            Sha1(m_data + tables[level - 1], kBlockSize, digest);
+            if (memcmp(digest, stored, 20) == 0)
+                continue;
+            report.staleTables++;
+            u32 other = OtherTableCopy(level - 1, block, tables[level - 1]);
+            if (other)
+            {
+                Sha1(m_data + other, kBlockSize, digest);
+                if (memcmp(digest, stored, 20) == 0)
+                    report.otherCopyMatches = true;
+            }
+        }
+    }
+
+    const u8* top = m_data + m_volume + kVolTopHash;
+    Sha1(m_data + m_topTable, kBlockSize, digest);
+    if (memcmp(digest, top, 20) != 0)
+    {
+        report.topHashStale = true;
+        u32 other = OtherTableCopy(m_topLevel, 0, m_topTable);
+        if (other)
+        {
+            Sha1(m_data + other, kBlockSize, digest);
+            if (memcmp(digest, top, 20) == 0)
+                report.otherCopyMatches = true;
+        }
+    }
+    return report;
+}
+
+bool StfsPackage::RewriteHashes(u8* data, std::string* error)
+{
+    StfsHashReport report = CheckHashes();
+    if (data != m_data || report.brokenChains || report.otherCopyMatches)
+    {
+        if (error) *error = "the package's hashes can't be repaired safely";
+        return false;
+    }
+
+    std::vector<u32> blocks;
+    UsedBlocks(&blocks);
+    for (size_t i = 0; i < blocks.size(); i++)
+    {
+        u32 tables[3];
+        ActiveTables(blocks[i], tables);
+        Sha1(data + BlockToOffset(blocks[i]), kBlockSize,
+             data + tables[0] + HashEntryIndex(0, blocks[i]) * kHashEntrySize);
+    }
+    // Bottom up: each level is hashed after the tables below it changed.
+    for (u32 level = 1; level <= m_topLevel; level++)
+    {
+        for (u32 block = 0; block < m_allocatedBlocks; block += kBlocksPerTable)
+        {
+            if (level == 2 && block % kBlocksPerL1 != 0)
+                continue;
+            u32 tables[3];
+            ActiveTables(block, tables);
+            Sha1(data + tables[level - 1], kBlockSize,
+                 data + tables[level] + HashEntryIndex(level, block) * kHashEntrySize);
+        }
+    }
+    Sha1(data + m_topTable, kBlockSize, data + m_volume + kVolTopHash);
+    return true;
+}

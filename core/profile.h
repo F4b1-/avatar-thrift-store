@@ -35,6 +35,24 @@ bool ProfileInspect(const u8* data, u32 size, ProfileInfo* out, std::string* err
 // sign afterwards with ProfileApplyConsoleSignature.
 bool ProfileSetOnlineXuid(u8* data, u32 size, u64 xuid, bool markLive, std::string* error);
 
+// What a profile's hashes look like before it's changed. The top hash and the
+// header hash aren't counted: ProfileSetOnlineXuid recomputes them anyway.
+struct ProfileHashState
+{
+    u32  staleBlocks;   // used blocks that don't match their hash
+    u32  staleTables;   // hash tables that don't match their entry one level up
+    bool needsRepair;   // the check in ProfileSetOnlineXuid may fail without a repair
+    bool repairable;    // ProfileRepairHashes can do it
+};
+
+bool ProfileCheckHashes(const u8* data, u32 size, ProfileHashState* out, std::string* error);
+
+// Makes every hash match the data as it is now (another tool may have changed
+// it without updating them) and checks the result. Fails, changing nothing,
+// unless ProfileCheckHashes says repairable. The console signature no longer
+// matches afterwards.
+bool ProfileRepairHashes(u8* data, u32 size, std::string* error);
+
 // Writes a console signature, the 0x228 bytes XeKeysConsolePrivateKeySign
 // returns for StfsComputeSignedHash's hash, at 0x004, and refuses (leaving the
 // data as it was) unless it verifies against its own certificate.
