@@ -254,7 +254,7 @@ change in `tools/designer/src/screens.rs`.
 
 Each menu card's picture has two layers, set on their own under **Menu
 cards**: the background (a three-colour gradient or an image file, with
-optional stripes and glow) and the object in front of it (the shirt, the
+optional stripes, glow and a clothes hanger) and the object in front of it (the shirt, the
 person with a tick, the hanger, an image file, or nothing), with its colours,
 size, position, shadow and sparkles. The designer draws them as SVG (with
 resvg) at the cards' width for the current `kMarginX`, and embeds them in

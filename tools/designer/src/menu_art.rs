@@ -66,6 +66,10 @@ pub struct Background {
     pub image: String,
     pub stripes: bool,
     pub glow: bool,
+    // The clothes hanger behind the object in front.
+    pub hanger: bool,
+    // 0 is invisible, 1 fully solid.
+    pub hanger_opacity: f32,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -127,6 +131,8 @@ impl Tile {
                 image: String::new(),
                 stripes: true,
                 glow: true,
+                hanger: false,
+                hanger_opacity: 1.0,
             },
             foreground: Foreground {
                 object,
@@ -240,6 +246,46 @@ fn sparkle(x: f32, y: f32, r: f32, o: f32) -> String {
     )
 }
 
+// The clothes hanger, filled with the gradient `fill`.
+fn hanger(cx: f32, cy: f32, fill: &str, shadow: &str) -> String {
+    // The hook: from the neck up, over the top and down on the left, to 215 degrees.
+    let hr = 21.0f32;
+    let (hx, hy, t) = (cx - hr, cy - 34.0, 215f32.to_radians());
+    let path = format!(
+        "M{cx} {} V{hy} A{hr} {hr} 0 1 0 {} {} M{cx} {} L{} {} L{} {} Z",
+        cy - 8.0,
+        hx + hr * t.cos(),
+        hy - hr * t.sin(),
+        cy - 8.0,
+        cx - 110.0,
+        cy + 50.0,
+        cx + 110.0,
+        cy + 50.0
+    );
+    let mut s = format!(
+        "<g{shadow}><path d=\"{path}\" fill=\"none\" stroke=\"url(#{fill})\" stroke-width=\"15\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></g>"
+    );
+    s += &format!(
+        "<path d=\"M{} {} L{} {}\" stroke=\"#fff\" stroke-width=\"3\" stroke-linecap=\"round\" opacity=\"0.9\"/>",
+        cx - 92.0,
+        cy + 39.0,
+        cx - 8.0,
+        cy - 5.0
+    );
+    s += &format!(
+        "<path d=\"M{} {} A18 18 0 0 1 {} {}\" fill=\"none\" stroke=\"#fff\" stroke-width=\"3\" stroke-linecap=\"round\" opacity=\"0.9\"/>",
+        cx - 30.0,
+        cy - 49.0,
+        cx - 6.0,
+        cy - 50.0
+    );
+    s += &format!(
+        "<circle cx=\"{cx}\" cy=\"{}\" r=\"9\" fill=\"url(#{fill})\" stroke=\"#cfc4ae\" stroke-width=\"1.5\"/>",
+        cy - 8.0
+    );
+    s
+}
+
 // The SVG for one picture, `w` wide (the card's width), as menu_art.html drew it.
 pub fn svg(tile: &Tile, w: i32, repo: &Path) -> Result<String, String> {
     let (wf, h) = (w as f32, HEIGHT as f32);
@@ -266,6 +312,12 @@ pub fn svg(tile: &Tile, w: i32, repo: &Path) -> Result<String, String> {
         "<linearGradient id=\"fill\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"{}\"/><stop offset=\"1\" stop-color=\"{}\"/></linearGradient>",
         hex(f.top),
         hex(f.bottom)
+    );
+    let (hanger_top, hanger_bottom) = default_fill(Object::Hanger);
+    s += &format!(
+        "<linearGradient id=\"hangerfill\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"{}\"/><stop offset=\"1\" stop-color=\"{}\"/></linearGradient>",
+        hex(hanger_top),
+        hex(hanger_bottom)
     );
     s += "<filter id=\"shadow\" x=\"-30%\" y=\"-30%\" width=\"160%\" height=\"170%\"><feDropShadow dx=\"0\" dy=\"7\" stdDeviation=\"6\" flood-color=\"#000\" flood-opacity=\"0.3\"/></filter>";
     s += "<linearGradient id=\"green\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#8fc879\"/><stop offset=\"1\" stop-color=\"#4f8a3d\"/></linearGradient>";
@@ -297,6 +349,12 @@ pub fn svg(tile: &Tile, w: i32, repo: &Path) -> Result<String, String> {
         "<rect y=\"{}\" width=\"{wf}\" height=\"3\" fill=\"#000\" opacity=\"0.12\"/>",
         h - 3.0
     );
+
+    if b.hanger {
+        s += &format!("<g opacity=\"{}\">", b.hanger_opacity);
+        s += &hanger(cx, cy, "hangerfill", " filter=\"url(#shadow)\"");
+        s += "</g>";
+    }
 
     // The object, moved and scaled about the centre.
     let shadow = if f.shadow {
@@ -384,41 +442,7 @@ pub fn svg(tile: &Tile, w: i32, repo: &Path) -> Result<String, String> {
             );
         }
         Object::Hanger => {
-            // The hook: from the neck up, over the top and down on the left, to 215 degrees.
-            let hr = 21.0f32;
-            let (hx, hy, t) = (cx - hr, cy - 34.0, 215f32.to_radians());
-            let path = format!(
-                "M{cx} {} V{hy} A{hr} {hr} 0 1 0 {} {} M{cx} {} L{} {} L{} {} Z",
-                cy - 8.0,
-                hx + hr * t.cos(),
-                hy - hr * t.sin(),
-                cy - 8.0,
-                cx - 110.0,
-                cy + 50.0,
-                cx + 110.0,
-                cy + 50.0
-            );
-            s += &format!(
-                "<g{shadow}><path d=\"{path}\" fill=\"none\" stroke=\"url(#fill)\" stroke-width=\"15\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></g>"
-            );
-            s += &format!(
-                "<path d=\"M{} {} L{} {}\" stroke=\"#fff\" stroke-width=\"3\" stroke-linecap=\"round\" opacity=\"0.9\"/>",
-                cx - 92.0,
-                cy + 39.0,
-                cx - 8.0,
-                cy - 5.0
-            );
-            s += &format!(
-                "<path d=\"M{} {} A18 18 0 0 1 {} {}\" fill=\"none\" stroke=\"#fff\" stroke-width=\"3\" stroke-linecap=\"round\" opacity=\"0.9\"/>",
-                cx - 30.0,
-                cy - 49.0,
-                cx - 6.0,
-                cy - 50.0
-            );
-            s += &format!(
-                "<circle cx=\"{cx}\" cy=\"{}\" r=\"9\" fill=\"url(#fill)\" stroke=\"#cfc4ae\" stroke-width=\"1.5\"/>",
-                cy - 8.0
-            );
+            s += &hanger(cx, cy, "fill", shadow);
         }
         Object::Image => {
             s += &format!(
@@ -596,6 +620,35 @@ mod tests {
         let gradient = render(&plain, 364, Path::new(".")).unwrap();
         assert_eq!(p.argb[95 * 364 + 40], 0xFFFF0000);
         assert_eq!(p.argb[95 * 364 + 330], gradient.argb[95 * 364 + 330]);
+    }
+
+    #[test]
+    fn the_hanger_goes_behind_the_object() {
+        let mut tile = Tile::shipped(0);
+        tile.foreground.object = Object::Nothing;
+        tile.foreground.sparkles = false;
+        let plain = render(&tile, 364, Path::new(".")).unwrap();
+        tile.background.hanger = true;
+        let with_hanger = render(&tile, 364, Path::new(".")).unwrap();
+        assert!(plain.argb != with_hanger.argb);
+
+        // Invisible at 0, and in between at a lower opacity.
+        tile.background.hanger_opacity = 0.0;
+        let invisible = render(&tile, 364, Path::new(".")).unwrap();
+        assert!(plain.argb == invisible.argb);
+        tile.background.hanger_opacity = 0.5;
+        let half = render(&tile, 364, Path::new(".")).unwrap();
+        assert!(half.argb != plain.argb && half.argb != with_hanger.argb);
+
+        // Settings saved before the option existed read back without a hanger.
+        let header = write_header(
+            &[Tile::shipped(0), Tile::shipped(1), Tile::shipped(2)],
+            364,
+            &[vec![], vec![], vec![]],
+        )
+        .replace(",\"hanger\":false", "");
+        let (tiles, _) = read_settings(&header).unwrap();
+        assert!(tiles.iter().all(|t| !t.background.hanger));
     }
 
     #[test]

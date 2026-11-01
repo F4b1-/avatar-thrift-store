@@ -420,7 +420,11 @@ fn card_editor(
     ui.horizontal(|ui| {
         ui.checkbox(&mut b.stripes, "stripes");
         ui.checkbox(&mut b.glow, "glow");
+        ui.checkbox(&mut b.hanger, "hanger");
     });
+    if b.hanger {
+        ui.add(egui::Slider::new(&mut b.hanger_opacity, 0.0..=1.0).text("hanger opacity"));
+    }
 
     let f = &mut tile.foreground;
     ui.add_space(6.0);
