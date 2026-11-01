@@ -310,7 +310,8 @@ static std::string BackupPath(const ProfileEntry& entry)
     }
 }
 
-bool ActivateProfile(const ProfileEntry& entry, std::string* backupPath, std::string* error)
+ActivateResult ActivateProfile(const ProfileEntry& entry, bool repairHashes, ProfileHashState* hashes,
+                               std::string* backupPath, std::string* error)
 {
     // Read it again: the list may be older than the file.
     std::vector<u8> data;
@@ -319,28 +320,47 @@ bool ActivateProfile(const ProfileEntry& entry, std::string* backupPath, std::st
         !ProfileInspect(&data[0], (u32)data.size(), &info, error))
     {
         if (error->empty()) *error = "cannot read the profile";
-        return false;
+        return kActivateFailed;
     }
     if (info.kind != kProfileOffline)
     {
         *error = info.kind == kProfileActivated ? "the profile is already activated" : "this is an Xbox Live profile";
-        return false;
+        return kActivateFailed;
     }
     if (IsSignedIn(info.offlineXuid, info.gamertag))
     {
         *error = "sign " + info.gamertag + " out first";
-        return false;
+        return kActivateFailed;
+    }
+
+    // Stale hashes would fail the check after the rewrite, and repairing them
+    // accepts data that may be damaged, so that's the user's choice.
+    if (!ProfileCheckHashes(&data[0], (u32)data.size(), hashes, error))
+        return kActivateFailed;
+    if (hashes->needsRepair)
+    {
+        xsdk_log_write("activate: %u stale blocks, %u stale tables, repairable %d", (unsigned)hashes->staleBlocks,
+                       (unsigned)hashes->staleTables, (int)hashes->repairable);
+        if (!hashes->repairable)
+        {
+            *error = "its hashes can't be repaired safely, nothing was changed";
+            return kActivateFailed;
+        }
+        if (!repairHashes)
+            return kActivateNeedsRepair;
     }
 
     *backupPath = BackupPath(entry);
     if (!MakeDirs("game:", "Backups") || !WriteWholeFile(*backupPath, &data[0], (u32)data.size()))
     {
         *error = "cannot write the backup, nothing was changed";
-        return false;
+        return kActivateFailed;
     }
 
+    if (hashes->needsRepair && !ProfileRepairHashes(&data[0], (u32)data.size(), error))
+        return kActivateFailed;
     if (!ProfileSetOnlineXuid(&data[0], (u32)data.size(), kSharedOnlineXuid, true, error))
-        return false;
+        return kActivateFailed;
 
     u8 hash[20];
     StfsComputeSignedHash(&data[0], hash);
@@ -361,18 +381,18 @@ bool ActivateProfile(const ProfileEntry& entry, std::string* backupPath, std::st
         char code[16];
         snprintf(code, sizeof code, "0x%08X", (unsigned)result);
         *error = std::string("the console returned no signature (") + code + "), nothing was changed";
-        return false;
+        return kActivateFailed;
     }
     if (!ProfileApplyConsoleSignature(&data[0], (u32)data.size(), (const u8*)signature, error))
     {
         *error += ", nothing was changed";
-        return false;
+        return kActivateFailed;
     }
 
     if (!WriteWholeFile(entry.path, &data[0], (u32)data.size()))
     {
         *error = "writing the profile failed; restore it from " + ShownPath(*backupPath);
-        return false;
+        return kActivateFailed;
     }
-    return true;
+    return kActivated;
 }

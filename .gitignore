@@ -2,6 +2,7 @@
 /build/
 /out/
 /dist/
+/tools/designer/target/
 *.obj
 *.pdb
 *.ilk

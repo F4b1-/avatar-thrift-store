@@ -39,7 +39,16 @@ bool FindSignedInOfflineProfile(ProfileEntry* out);
 // file, so ActivateProfile can rewrite it.
 bool SignOutProfile(const ProfileEntry& entry, std::string* error);
 
+enum ActivateResult
+{
+    kActivated,
+    kActivateFailed,
+    kActivateNeedsRepair,   // stale hashes and no `repairHashes`: nothing was done, ask first
+};
+
 // Activates an offline profile in place. A copy of the original goes to
 // game:\Backups first; nothing is written unless the console's signature
-// verifies. `backupPath` names the copy.
-bool ActivateProfile(const ProfileEntry& entry, std::string* backupPath, std::string* error);
+// verifies. `backupPath` names the copy. With `repairHashes`, stale hashes are
+// rewritten on the way; `hashes` says what was found.
+ActivateResult ActivateProfile(const ProfileEntry& entry, bool repairHashes, ProfileHashState* hashes,
+                               std::string* backupPath, std::string* error);

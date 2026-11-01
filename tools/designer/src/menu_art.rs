@@ -1,0 +1,613 @@
+// The pictures at the top of the main menu's cards, in two layers: a
+// background (a gradient or an image, with stripes and a glow) and an object
+// in front of it (one of the app's drawn icons, or an image), each set on its
+// own. They're built as SVG, rendered with resvg and embedded in
+// app/menu_art.h as PNGs, which keeps the settings in a comment line so the
+// designer can read them back.
+
+use crate::assets::Picture;
+use base64::Engine;
+use resvg::{tiny_skia, usvg};
+use serde::{Deserialize, Serialize};
+use std::path::Path;
+
+pub const HEIGHT: i32 = 190;
+const RADIUS: f32 = 28.0;
+const CREAM: &str = "#f7f3ea";
+const SETTINGS: &str = "// designer: ";
+
+pub const NAMES: [&str; 3] = ["Unlock Items", "Activate Offline Profile", "Avatar Editor"];
+
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum BackgroundKind {
+    Gradient,
+    Image,
+}
+
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum Object {
+    Shirt,
+    Profile,
+    Hanger,
+    Image,
+    Nothing,
+}
+
+impl Object {
+    pub const ALL: [Object; 5] = [
+        Object::Shirt,
+        Object::Profile,
+        Object::Hanger,
+        Object::Image,
+        Object::Nothing,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Object::Shirt => "Shirt",
+            Object::Profile => "Person with a tick",
+            Object::Hanger => "Hanger",
+            Object::Image => "Image file",
+            Object::Nothing => "Nothing",
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Background {
+    pub kind: BackgroundKind,
+    // The gradient, top to bottom (ARGB; alpha is ignored). It also shows
+    // through an image's transparent parts.
+    pub light: u32,
+    pub base: u32,
+    pub dark: u32,
+    // An image covering the card, cut to fit; a path relative to the repository or absolute.
+    pub image: String,
+    pub stripes: bool,
+    pub glow: bool,
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Foreground {
+    pub object: Object,
+    // The drawn objects' fill, top to bottom.
+    pub top: u32,
+    pub bottom: u32,
+    // An image shown whole, 160 px high at scale 1.
+    pub image: String,
+    pub scale: f32,
+    pub x: f32,
+    pub y: f32,
+    pub shadow: bool,
+    pub sparkles: bool,
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Tile {
+    pub background: Background,
+    pub foreground: Foreground,
+}
+
+impl Default for Background {
+    fn default() -> Self {
+        Tile::shipped(0).background
+    }
+}
+
+impl Default for Foreground {
+    fn default() -> Self {
+        Tile::shipped(0).foreground
+    }
+}
+
+impl Default for Tile {
+    fn default() -> Self {
+        Tile::shipped(0)
+    }
+}
+
+impl Tile {
+    // Card `index` as the app shipped it (tools/menu_art.html before the designer).
+    pub fn shipped(index: usize) -> Tile {
+        let (light, base, dark, object) = match index {
+            1 => (0xFF8977A6, 0xFF6E5C8A, 0xFF5D4C78, Object::Profile),
+            2 => (0xFF6A8BAB, 0xFF4F6F8F, 0xFF41607E, Object::Hanger),
+            _ => (0xFF7AAB64, 0xFF5E8F4C, 0xFF4F7C3F, Object::Shirt),
+        };
+        let (top, bottom) = default_fill(object);
+        Tile {
+            background: Background {
+                kind: BackgroundKind::Gradient,
+                light,
+                base,
+                dark,
+                image: String::new(),
+                stripes: true,
+                glow: true,
+            },
+            foreground: Foreground {
+                object,
+                top,
+                bottom,
+                image: String::new(),
+                scale: 1.0,
+                x: 0.0,
+                y: 0.0,
+                shadow: true,
+                sparkles: true,
+            },
+        }
+    }
+}
+
+// The drawn objects' own fill: cream cloth, white metal.
+pub fn default_fill(object: Object) -> (u32, u32) {
+    match object {
+        Object::Hanger => (0xFFFFFFFF, 0xFFDDD4C2),
+        _ => (0xFFFFFDF8, 0xFFE8DFCD),
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct Stored {
+    width: i32,
+    tiles: Vec<Tile>,
+}
+
+// The settings and the pictures' width from menu_art.h; None for a header
+// without them (one made by the old gen_menu_art.ps1).
+pub fn read_settings(header: &str) -> Option<(Vec<Tile>, i32)> {
+    let line = header.lines().find_map(|l| l.strip_prefix(SETTINGS))?;
+    let stored: Stored = serde_json::from_str(line).ok()?;
+    (stored.tiles.len() == 3).then_some((stored.tiles, stored.width))
+}
+
+// menu_art.h with the three pictures (PNG bytes) and the settings they came from.
+pub fn write_header(tiles: &[Tile], width: i32, pngs: &[Vec<u8>]) -> String {
+    let stored = Stored {
+        width,
+        tiles: tiles.to_vec(),
+    };
+    let mut out = String::new();
+    out +=
+        "// Generated by tools/designer (\"Menu cards\"). Do not edit; change the cards there.\n";
+    out +=
+        &format!("// The main menu cards' pictures as PNGs, {width} x {HEIGHT}, in menu order.\n");
+    out += SETTINGS;
+    out += &serde_json::to_string(&stored).expect("settings serialise");
+    out += "\n#pragma once\n\n";
+    for (i, png) in pngs.iter().enumerate() {
+        out += &format!(
+            "// {}\nstatic const unsigned char g_menuArt{i}[{}] =\n{{\n",
+            NAMES[i],
+            png.len()
+        );
+        for row in png.chunks(24) {
+            let bytes: Vec<String> = row.iter().map(|b| format!("0x{b:02X}")).collect();
+            out += &format!("    {},\n", bytes.join(", "));
+        }
+        out += "};\n\n";
+    }
+    out += "static const unsigned char* const g_menuArt[3] = { g_menuArt0, g_menuArt1, g_menuArt2 };\n";
+    out += "static const unsigned int g_menuArtSize[3] = { sizeof g_menuArt0, sizeof g_menuArt1, sizeof g_menuArt2 };\n";
+    out
+}
+
+fn hex(c: u32) -> String {
+    format!("#{:06x}", c & 0xFFFFFF)
+}
+
+// An image file as a data URL for the SVG.
+fn data_url(repo: &Path, path: &str) -> Result<String, String> {
+    if path.trim().is_empty() {
+        return Err("no image chosen".into());
+    }
+    let full = repo.join(path);
+    let bytes = std::fs::read(&full).map_err(|e| format!("{}: {e}", full.display()))?;
+    let mime = if bytes.starts_with(b"\x89PNG") {
+        "image/png"
+    } else if bytes.starts_with(&[0xFF, 0xD8]) {
+        "image/jpeg"
+    } else {
+        return Err(format!("{}: not a PNG or JPEG", full.display()));
+    };
+    Ok(format!(
+        "data:{mime};base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    ))
+}
+
+fn sparkle(x: f32, y: f32, r: f32, o: f32) -> String {
+    let k = r * 0.25;
+    format!(
+        "<path d=\"M{x} {} Q{} {} {} {y} Q{} {} {x} {} Q{} {} {} {y} Q{} {} {x} {}Z\" fill=\"#fff\" opacity=\"{o}\"/>",
+        y - r,
+        x + k,
+        y - k,
+        x + r,
+        x + k,
+        y + k,
+        y + r,
+        x - k,
+        y + k,
+        x - r,
+        x - k,
+        y - k,
+        y - r
+    )
+}
+
+// The SVG for one picture, `w` wide (the card's width), as menu_art.html drew it.
+pub fn svg(tile: &Tile, w: i32, repo: &Path) -> Result<String, String> {
+    let (wf, h) = (w as f32, HEIGHT as f32);
+    let (cx, cy) = (wf / 2.0, h / 2.0);
+    let b = &tile.background;
+    let f = &tile.foreground;
+    let r = RADIUS;
+    let mut s = format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{w}\" height=\"{HEIGHT}\" viewBox=\"0 0 {w} {HEIGHT}\"><defs>"
+    );
+    s += &format!(
+        "<clipPath id=\"card\"><path d=\"M0 {h} V{r} A{r} {r} 0 0 1 {r} 0 H{} A{r} {r} 0 0 1 {wf} {r} V{h} Z\"/></clipPath>",
+        wf - r
+    );
+    s += &format!(
+        "<linearGradient id=\"bg\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"{}\"/><stop offset=\"0.6\" stop-color=\"{}\"/><stop offset=\"1\" stop-color=\"{}\"/></linearGradient>",
+        hex(b.light),
+        hex(b.base),
+        hex(b.dark)
+    );
+    s += "<radialGradient id=\"glow\" cx=\"0.5\" cy=\"0.5\" r=\"0.5\"><stop offset=\"0\" stop-color=\"#fff\" stop-opacity=\"0.3\"/><stop offset=\"1\" stop-color=\"#fff\" stop-opacity=\"0\"/></radialGradient>";
+    s += "<pattern id=\"stripes\" width=\"14\" height=\"14\" patternUnits=\"userSpaceOnUse\" patternTransform=\"rotate(-30)\"><rect width=\"7\" height=\"14\" fill=\"#fff\" opacity=\"0.045\"/></pattern>";
+    s += &format!(
+        "<linearGradient id=\"fill\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"{}\"/><stop offset=\"1\" stop-color=\"{}\"/></linearGradient>",
+        hex(f.top),
+        hex(f.bottom)
+    );
+    s += "<filter id=\"shadow\" x=\"-30%\" y=\"-30%\" width=\"160%\" height=\"170%\"><feDropShadow dx=\"0\" dy=\"7\" stdDeviation=\"6\" flood-color=\"#000\" flood-opacity=\"0.3\"/></filter>";
+    s += "<linearGradient id=\"green\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#8fc879\"/><stop offset=\"1\" stop-color=\"#4f8a3d\"/></linearGradient>";
+    s += &format!(
+        "<mask id=\"collar\"><rect width=\"{wf}\" height=\"{h}\" fill=\"#fff\"/><circle cx=\"{cx}\" cy=\"{}\" r=\"22\" fill=\"#000\"/></mask>",
+        cy - 66.0
+    );
+    s += "</defs><g clip-path=\"url(#card)\">";
+
+    // The background: the gradient, under the image if there is one, so a
+    // transparent image doesn't leave holes in the card.
+    s += &format!("<rect width=\"{wf}\" height=\"{h}\" fill=\"url(#bg)\"/>");
+    if b.kind == BackgroundKind::Image {
+        s += &format!(
+            "<image href=\"{}\" width=\"{wf}\" height=\"{h}\" preserveAspectRatio=\"xMidYMid slice\"/>",
+            data_url(repo, &b.image).map_err(|e| format!("background: {e}"))?
+        );
+    }
+    if b.stripes {
+        s += &format!("<rect width=\"{wf}\" height=\"{h}\" fill=\"url(#stripes)\"/>");
+    }
+    if b.glow {
+        s += &format!(
+            "<ellipse cx=\"{cx}\" cy=\"{}\" rx=\"150\" ry=\"100\" fill=\"url(#glow)\"/>",
+            cy + 4.0
+        );
+    }
+    s += &format!(
+        "<rect y=\"{}\" width=\"{wf}\" height=\"3\" fill=\"#000\" opacity=\"0.12\"/>",
+        h - 3.0
+    );
+
+    // The object, moved and scaled about the centre.
+    let shadow = if f.shadow {
+        " filter=\"url(#shadow)\""
+    } else {
+        ""
+    };
+    s += &format!(
+        "<g transform=\"translate({} {}) translate({cx} {cy}) scale({}) translate({} {})\">",
+        f.x, f.y, f.scale, -cx, -cy
+    );
+    match f.object {
+        Object::Shirt => {
+            s += &format!(
+                "<g{shadow}><g mask=\"url(#collar)\"><rect x=\"{}\" y=\"{}\" width=\"60\" height=\"56\" rx=\"14\" fill=\"url(#fill)\"/><rect x=\"{}\" y=\"{}\" width=\"60\" height=\"56\" rx=\"14\" fill=\"url(#fill)\"/><rect x=\"{}\" y=\"{}\" width=\"108\" height=\"136\" rx=\"16\" fill=\"url(#fill)\"/></g></g>",
+                cx - 88.0,
+                cy - 60.0,
+                cx + 28.0,
+                cy - 60.0,
+                cx - 54.0,
+                cy - 64.0
+            );
+            s += &format!(
+                "<g fill=\"none\" stroke=\"#7d6f55\" stroke-opacity=\"0.35\" stroke-width=\"2\" stroke-dasharray=\"5 4\" stroke-linecap=\"round\"><path d=\"M{} {} H{}\"/><path d=\"M{} {} H{}\"/><path d=\"M{} {} A29 29 0 0 0 {} {}\"/><path d=\"M{} {} H{}\"/></g>",
+                cx - 82.0,
+                cy - 13.0,
+                cx - 54.0,
+                cx + 54.0,
+                cy - 13.0,
+                cx + 82.0,
+                cx - 29.0,
+                cy - 61.0,
+                cx + 29.0,
+                cy - 61.0,
+                cx - 46.0,
+                cy + 63.0,
+                cx + 46.0
+            );
+        }
+        Object::Profile => {
+            s += &format!(
+                "<g{shadow}><circle cx=\"{cx}\" cy=\"{}\" r=\"38\" fill=\"url(#fill)\"/><rect x=\"{}\" y=\"{}\" width=\"140\" height=\"68\" rx=\"34\" fill=\"url(#fill)\"/></g>",
+                cy - 32.0,
+                cx - 70.0,
+                cy + 14.0
+            );
+            s += &format!(
+                "<ellipse cx=\"{}\" cy=\"{}\" rx=\"15\" ry=\"9\" fill=\"#fff\" opacity=\"0.75\" transform=\"rotate(-35 {} {})\"/>",
+                cx - 13.0,
+                cy - 48.0,
+                cx - 13.0,
+                cy - 48.0
+            );
+            s += &format!(
+                "<path d=\"M{} {} Q{cx} {} {} {}\" fill=\"none\" stroke=\"#fff\" stroke-width=\"4\" stroke-linecap=\"round\" opacity=\"0.7\"/>",
+                cx - 50.0,
+                cy + 26.0,
+                cy + 16.0,
+                cx + 50.0,
+                cy + 26.0
+            );
+            let (bx, by) = (cx + 62.0, cy + 50.0);
+            s += &format!(
+                "<g{shadow}><circle cx=\"{bx}\" cy=\"{by}\" r=\"30\" fill=\"{CREAM}\"/></g>"
+            );
+            s += &format!("<circle cx=\"{bx}\" cy=\"{by}\" r=\"25\" fill=\"url(#green)\"/>");
+            s += &format!(
+                "<path d=\"M{} {} A22 18 0 0 1 {} {} Q{bx} {} {} {}Z\" fill=\"#fff\" opacity=\"0.28\"/>",
+                cx + 42.0,
+                cy + 44.0,
+                cx + 82.0,
+                cy + 44.0,
+                cy + 38.0,
+                cx + 42.0,
+                cy + 44.0
+            );
+            let (tx, ty, k) = (cx + 49.0, cy + 40.0, 1.3);
+            s += &format!(
+                "<path d=\"M{tx} {} l{} {} l{} -{}\" fill=\"none\" stroke=\"#fff\" stroke-width=\"6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>",
+                ty + 6.0 * k,
+                5.0 * k,
+                5.0 * k,
+                10.0 * k,
+                10.0 * k
+            );
+        }
+        Object::Hanger => {
+            // The hook: from the neck up, over the top and down on the left, to 215 degrees.
+            let hr = 21.0f32;
+            let (hx, hy, t) = (cx - hr, cy - 34.0, 215f32.to_radians());
+            let path = format!(
+                "M{cx} {} V{hy} A{hr} {hr} 0 1 0 {} {} M{cx} {} L{} {} L{} {} Z",
+                cy - 8.0,
+                hx + hr * t.cos(),
+                hy - hr * t.sin(),
+                cy - 8.0,
+                cx - 110.0,
+                cy + 50.0,
+                cx + 110.0,
+                cy + 50.0
+            );
+            s += &format!(
+                "<g{shadow}><path d=\"{path}\" fill=\"none\" stroke=\"url(#fill)\" stroke-width=\"15\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></g>"
+            );
+            s += &format!(
+                "<path d=\"M{} {} L{} {}\" stroke=\"#fff\" stroke-width=\"3\" stroke-linecap=\"round\" opacity=\"0.9\"/>",
+                cx - 92.0,
+                cy + 39.0,
+                cx - 8.0,
+                cy - 5.0
+            );
+            s += &format!(
+                "<path d=\"M{} {} A18 18 0 0 1 {} {}\" fill=\"none\" stroke=\"#fff\" stroke-width=\"3\" stroke-linecap=\"round\" opacity=\"0.9\"/>",
+                cx - 30.0,
+                cy - 49.0,
+                cx - 6.0,
+                cy - 50.0
+            );
+            s += &format!(
+                "<circle cx=\"{cx}\" cy=\"{}\" r=\"9\" fill=\"url(#fill)\" stroke=\"#cfc4ae\" stroke-width=\"1.5\"/>",
+                cy - 8.0
+            );
+        }
+        Object::Image => {
+            s += &format!(
+                "<g{shadow}><image href=\"{}\" x=\"{}\" y=\"{}\" width=\"240\" height=\"160\" preserveAspectRatio=\"xMidYMid meet\"/></g>",
+                data_url(repo, &f.image).map_err(|e| format!("object: {e}"))?,
+                cx - 120.0,
+                cy - 80.0
+            );
+        }
+        Object::Nothing => {}
+    }
+    s += "</g>";
+
+    // Sparkles around the object, where each drawing left room for them.
+    if f.sparkles {
+        let spots: &[(f32, f32, f32, f32)] = match f.object {
+            Object::Shirt => &[
+                (112.0, -46.0, 9.0, 0.85),
+                (-116.0, 46.0, 6.0, 0.6),
+                (124.0, 30.0, 4.0, 0.5),
+            ],
+            Object::Profile => &[(120.0, -8.0, 8.0, 0.8), (-104.0, -22.0, 5.0, 0.6)],
+            Object::Hanger => &[(128.0, 4.0, 9.0, 0.85), (-120.0, -40.0, 5.0, 0.6)],
+            _ => &[
+                (140.0, -50.0, 9.0, 0.85),
+                (-140.0, 46.0, 6.0, 0.6),
+                (150.0, 36.0, 4.0, 0.5),
+            ],
+        };
+        for &(x, y, r, o) in spots {
+            s += &sparkle(cx + x, cy + y, r, o);
+        }
+    }
+    s += "</g></svg>";
+    Ok(s)
+}
+
+// One picture, `w` x HEIGHT, ARGB with transparent corners.
+pub fn render(tile: &Tile, w: i32, repo: &Path) -> Result<Picture, String> {
+    let svg = svg(tile, w, repo)?;
+    let tree = usvg::Tree::from_str(&svg, &usvg::Options::default()).map_err(|e| e.to_string())?;
+    let mut pixmap = tiny_skia::Pixmap::new(w as u32, HEIGHT as u32).ok_or("bad picture size")?;
+    resvg::render(&tree, tiny_skia::Transform::default(), &mut pixmap.as_mut());
+    let argb = pixmap
+        .pixels()
+        .iter()
+        .map(|p| {
+            let c = p.demultiply();
+            (c.alpha() as u32) << 24
+                | (c.red() as u32) << 16
+                | (c.green() as u32) << 8
+                | c.blue() as u32
+        })
+        .collect();
+    Ok(Picture {
+        width: w,
+        height: HEIGHT,
+        argb,
+    })
+}
+
+pub fn encode_png(p: &Picture) -> Result<Vec<u8>, String> {
+    let mut bytes = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut bytes, p.width as u32, p.height as u32);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder.set_compression(png::Compression::High);
+        let mut writer = encoder.write_header().map_err(|e| e.to_string())?;
+        let rgba: Vec<u8> = p
+            .argb
+            .iter()
+            .flat_map(|c| [(c >> 16) as u8, (c >> 8) as u8, *c as u8, (c >> 24) as u8])
+            .collect();
+        writer.write_image_data(&rgba).map_err(|e| e.to_string())?;
+    }
+    Ok(bytes)
+}
+
+// The cards' width for a margin, as DrawMenu works it out.
+pub fn card_width(margin_x: i32) -> i32 {
+    (1280 - 2 * margin_x + 32 - 2 * 30) / 3
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn shipped() -> Vec<Tile> {
+        (0..3).map(Tile::shipped).collect()
+    }
+
+    #[test]
+    fn renders_the_shipped_cards() {
+        for tile in shipped() {
+            let p = render(&tile, 364, Path::new(".")).unwrap();
+            // Rounded top corners are transparent, the middle is covered.
+            assert_eq!(p.argb[0] >> 24, 0);
+            assert_eq!(p.argb[(95 * 364 + 182) as usize] >> 24, 0xFF);
+        }
+    }
+
+    #[test]
+    fn the_header_keeps_its_settings_and_pictures() {
+        let mut tiles = shipped();
+        tiles[1].foreground.scale = 1.4;
+        tiles[2].background.stripes = false;
+        let pictures: Vec<Picture> = tiles
+            .iter()
+            .map(|t| render(t, 300, Path::new(".")).unwrap())
+            .collect();
+        let pngs: Vec<Vec<u8>> = pictures.iter().map(|p| encode_png(p).unwrap()).collect();
+        let header = write_header(&tiles, 300, &pngs);
+        let (back, width) = read_settings(&header).unwrap();
+        assert!(back == tiles);
+        assert_eq!(width, 300);
+        let dir = std::env::temp_dir().join("designer_menu_art_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("menu_art.h"), &header).unwrap();
+        let decoded = crate::assets::load_menu_art(&dir);
+        assert_eq!(decoded.len(), 3);
+        assert!(decoded[1].argb == pictures[1].argb);
+    }
+
+    #[test]
+    fn an_old_header_has_no_settings() {
+        let old = "// Generated by tools/gen_menu_art.ps1 from tools/menu_art.html. Do not edit.\n#pragma once\n";
+        assert!(read_settings(old).is_none());
+    }
+
+    // A 40 x 40 PNG, its left half opaque red, its right half transparent.
+    fn half_transparent_png(name: &str) -> String {
+        let argb: Vec<u32> = (0..1600)
+            .map(|i| if i % 40 < 20 { 0xFFFF0000 } else { 0 })
+            .collect();
+        let png = encode_png(&Picture {
+            width: 40,
+            height: 40,
+            argb,
+        })
+        .unwrap();
+        let dir = std::env::temp_dir().join("designer_menu_art_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(name);
+        std::fs::write(&path, png).unwrap();
+        path.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn a_transparent_object_image_shows_the_card() {
+        let mut tile = Tile::shipped(0);
+        tile.foreground.object = Object::Image;
+        tile.foreground.image = half_transparent_png("object.png");
+        tile.foreground.shadow = false;
+        let p = render(&tile, 364, Path::new(".")).unwrap();
+        // The image is drawn 160 x 160 at x 102..262.
+        assert_eq!(p.argb[95 * 364 + 140], 0xFFFF0000);
+        let behind = p.argb[95 * 364 + 230];
+        assert_eq!(behind >> 24, 0xFF);
+        assert_ne!(behind, 0xFFFF0000);
+    }
+
+    #[test]
+    fn a_transparent_background_image_shows_the_gradient() {
+        let mut tile = Tile::shipped(0);
+        tile.background.kind = BackgroundKind::Image;
+        tile.background.image = half_transparent_png("background.png");
+        tile.background.stripes = false;
+        tile.background.glow = false;
+        tile.foreground.object = Object::Nothing;
+        tile.foreground.sparkles = false;
+        let p = render(&tile, 364, Path::new(".")).unwrap();
+        let mut plain = tile.clone();
+        plain.background.kind = BackgroundKind::Gradient;
+        let gradient = render(&plain, 364, Path::new(".")).unwrap();
+        assert_eq!(p.argb[95 * 364 + 40], 0xFFFF0000);
+        assert_eq!(p.argb[95 * 364 + 330], gradient.argb[95 * 364 + 330]);
+    }
+
+    #[test]
+    fn a_missing_image_is_an_error() {
+        let mut tile = Tile::shipped(0);
+        tile.foreground.object = Object::Image;
+        tile.foreground.image = "no/such/file.png".into();
+        assert!(render(&tile, 364, Path::new(".")).is_err());
+    }
+
+    #[test]
+    fn the_shipped_margin_gives_the_shipped_width() {
+        assert_eq!(card_width(80), 364);
+    }
+}
