@@ -10,11 +10,12 @@
 //   avtool patch [--xuid <16 hex>] [--title <8 hex>] --out <dir> <package> [...]
 //       --xuid sets the licensee of license entry [1]; omitted, it stays as is
 //       writes <dir>\<TITLE>\00009000\<ASSETID> for each package
-//   avtool set-xuid [--xuid <16 hex>] [--live] --out <file> <profile>
+//   avtool set-xuid [--xuid <16 hex>] [--live] [--repair-hashes] --out <file> <profile>
 //       writes a copy of the profile with a new online XUID in its Account
 //       file (default: the shared 00090000AAAAAAAA), rehashed; --live also
 //       sets the Live-enabled reserved flag. The console signature is NOT
-//       updated (resign it)
+//       updated (resign it). --repair-hashes first makes every stale hash match
+//       the data, as the console app does when the user agrees
 //   avtool verify-sig <package> [...]   check a CON package's console signature
 
 #include "../../core/account.h"
@@ -425,6 +426,7 @@ static int CmdSetXuid(int argc, char** argv)
 {
     u64 xuid = kSharedOnlineXuid;
     bool live = false;
+    bool repair = false;
     const char* outPath = NULL;
     const char* inPath = NULL;
     for (int i = 2; i < argc; i++)
@@ -441,6 +443,8 @@ static int CmdSetXuid(int argc, char** argv)
             outPath = argv[++i];
         else if (strcmp(argv[i], "--live") == 0)
             live = true;
+        else if (strcmp(argv[i], "--repair-hashes") == 0)
+            repair = true;
         else if (!inPath)
             inPath = argv[i];
         else
@@ -472,6 +476,7 @@ static int CmdSetXuid(int argc, char** argv)
         return 1;
     }
     if (!ProfileInspect(&data[0], (u32)data.size(), &before, &error) ||
+        (repair && !ProfileRepairHashes(&data[0], (u32)data.size(), &error)) ||
         !ProfileSetOnlineXuid(&data[0], (u32)data.size(), xuid, live, &error) ||
         !ProfileInspect(&data[0], (u32)data.size(), &after, &error))
     {
@@ -522,7 +527,7 @@ static void Usage()
             "       avtool extract <package> <file name> <output file>\n"
             "       avtool awards <profile> [...]\n"
             "       avtool patch [--xuid <16 hex>] [--title <8 hex>] --out <dir> <package> [...]\n"
-            "       avtool set-xuid [--xuid <16 hex>] [--live] --out <file> <profile>\n"
+            "       avtool set-xuid [--xuid <16 hex>] [--live] [--repair-hashes] --out <file> <profile>\n"
             "       avtool verify-sig <package> [...]\n");
 }
 

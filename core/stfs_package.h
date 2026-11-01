@@ -25,6 +25,16 @@ struct StfsFileEntry
     u32         size;
 };
 
+struct StfsHashReport
+{
+    u32  staleBlocks;       // used blocks that don't match their hash
+    u32  staleTables;       // hash tables that don't match their entry one level up
+    bool topHashStale;      // the top table doesn't match the volume descriptor
+    bool brokenChains;      // a file or hash table lies outside the package
+    bool otherCopyMatches;  // a stored hash is right for the inactive table copy:
+                            // the wrong copy may be being read
+};
+
 class StfsPackage
 {
 public:
@@ -49,6 +59,16 @@ public:
     // top table against the volume descriptor. Returns the number of mismatches.
     u32 VerifyHashTables(u32* checked) const;
 
+    // Every hash the two Verify functions cover, with what a repair needs to know.
+    StfsHashReport CheckHashes() const;
+
+    // Stores the current SHA-1 of every used block and hash table, up to the top
+    // hash: the data is accepted as it is. Refuses, changing nothing, when
+    // CheckHashes finds brokenChains or otherCopyMatches. `data` must be the
+    // (writable) buffer passed to Open. The package header hash and signature are
+    // left to the caller.
+    bool RewriteHashes(u8* data, std::string* error);
+
     // Overwrites a file's contents in place with `size` == entry.size bytes,
     // then rehashes its blocks up through the hash tables to the volume
     // descriptor's top hash. `data` must be the (writable) buffer passed to
@@ -65,6 +85,10 @@ private:
     bool HashEntryOffset(u32 block, u32* offset) const;
     bool NextBlock(u32 block, u32* next) const;
     bool BlockChain(u32 start, u32 count, bool consecutive, std::vector<u32>* chain) const;
+    // The file table's and every file's blocks; false if a chain leaves the package.
+    bool UsedBlocks(std::vector<u32>* blocks) const;
+    // The other copy of the table of `level` at `offset`; 0 if there is none in the file.
+    u32  OtherTableCopy(u32 level, u32 block, u32 offset) const;
     u32  HashTableOffset(u32 level, u32 block) const;
 
     const u8* m_data;
