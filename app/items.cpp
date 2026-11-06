@@ -8,6 +8,7 @@
 #include "../core/stfs_package.h"
 
 #include "stb_image.h"
+#include "xsdk/log.h"
 
 #include <ctype.h>
 
@@ -16,6 +17,8 @@
 
 static const char* kItemsFolder = "game:\\AvatarItems";
 static const size_t kMaxReportedErrors = 3;
+// How often "Unlock all" logs its progress.
+static const size_t kLogEveryFiles = 50;
 // Enough of a package for its type, display name and asset id.
 static const u32 kItemHeaderBytes = 0x1800;
 
@@ -81,10 +84,9 @@ static void AddUnique(std::vector<u64>* xuids, u64 xuid)
         xuids->push_back(xuid);
 }
 
-std::vector<u64> ItemLicensees()
+std::vector<u64> ItemLicensees(const std::vector<ProfileEntry>& profiles)
 {
     std::vector<u64> licensees(1, kSharedOnlineXuid);
-    std::vector<ProfileEntry> profiles = ScanProfiles();
     for (size_t i = 0; i < profiles.size(); i++)
         if (profiles[i].error.empty() && profiles[i].info.kind == kProfileLive)
             AddUnique(&licensees, profiles[i].info.onlineXuid);
@@ -356,33 +358,55 @@ static void AddFailure(InstallAllResult* result, const std::string& name, const 
         result->errors.push_back(name + ": " + error);
 }
 
-static void InstallAllIn(const std::string& relative, const std::vector<u64>& licensees, const Drive& drive,
-                         InstallAllResult* result)
+InstallAllJob::InstallAllJob() : m_next(0)
 {
-    std::string full = FullPath(relative);
-    std::vector<std::string> files = ListFolder(full, false);
-    for (size_t i = 0; i < files.size(); i++)
-    {
-        std::vector<u8> header;
-        StfsHeader h;
-        if (!ReadAvatarItemHeader(Join(relative, files[i]), &header, &h))
-            continue;   // not an item, as in the listing
-        std::string error;
-        if (InstallItemFile(Join(relative, files[i]), licensees, drive, &error))
-            result->installed++;
-        else
-            AddFailure(result, files[i], error);
-    }
-    std::vector<std::string> folders = ListFolder(full, true);
-    for (size_t i = 0; i < folders.size(); i++)
-        InstallAllIn(Join(relative, folders[i]), licensees, drive, result);
+    m_result.installed = 0;
+    m_result.failed = 0;
 }
 
-InstallAllResult InstallAllItems(const std::string& relative, const std::vector<u64>& licensees, const Drive& drive)
+void InstallAllJob::Start(const std::string& relative, const std::vector<u64>& licensees, const Drive& drive)
 {
-    InstallAllResult result;
-    result.installed = 0;
-    result.failed = 0;
-    InstallAllIn(relative, licensees, drive, &result);
-    return result;
+    *this = InstallAllJob();
+    m_licensees = licensees;
+    m_drive = drive;
+    m_folders.push_back(relative);
+    xsdk_log_write("unlock all: \"%s\" to %s", relative.c_str(), drive.name.c_str());
+}
+
+void InstallAllJob::Step()
+{
+    if (!m_folders.empty())
+    {
+        // A folder's files, then its subfolders one by one, depth first: the
+        // first subfolder goes on the stack last, so it's listed next.
+        std::string relative = m_folders.back();
+        m_folders.pop_back();
+        std::string full = FullPath(relative);
+        std::vector<std::string> files = ListFolder(full, false);
+        for (size_t i = 0; i < files.size(); i++)
+            m_files.push_back(Join(relative, files[i]));
+        std::vector<std::string> folders = ListFolder(full, true);
+        for (size_t i = folders.size(); i-- > 0;)
+            m_folders.push_back(Join(relative, folders[i]));
+        if (m_folders.empty())
+            xsdk_log_write("unlock all: %d files", (int)m_files.size());
+        return;
+    }
+    if (m_next >= m_files.size())
+        return;
+
+    const std::string& path = m_files[m_next++];
+    std::vector<u8> header;
+    StfsHeader h;
+    if (ReadAvatarItemHeader(path, &header, &h))   // otherwise not an item, as in the listing
+    {
+        std::string error;
+        if (InstallItemFile(path, m_licensees, m_drive, &error))
+            m_result.installed++;
+        else
+            AddFailure(&m_result, FolderName(path), error);
+    }
+    if (m_next % kLogEveryFiles == 0 || m_next == m_files.size())
+        xsdk_log_write("unlock all: %d / %d files, %d unlocked, %d failed", (int)m_next, (int)m_files.size(),
+                       m_result.installed, m_result.failed);
 }

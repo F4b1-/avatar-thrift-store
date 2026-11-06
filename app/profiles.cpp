@@ -226,9 +226,8 @@ int FirstSignedInUser(std::string* gamertag)
     return -1;
 }
 
-bool FindSignedInOfflineProfile(ProfileEntry* out)
+bool FindSignedInOfflineProfile(const std::vector<ProfileEntry>& profiles, ProfileEntry* out)
 {
-    std::vector<ProfileEntry> profiles = ScanProfiles();
     for (size_t i = 0; i < profiles.size(); i++)
     {
         const ProfileEntry& p = profiles[i];

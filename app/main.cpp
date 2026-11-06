@@ -39,6 +39,10 @@ static const char* kAppName = "Avatar Thrift Store";
 static const int kMenuCards = 3;
 static const u32 kToastMs = 2500;
 static const size_t kMaxQuery = 30;
+// Work done per frame by jobs that run in slices ("Unlock all") before the
+// screen is drawn and the pad read again. A file being unlocked is always
+// finished, so a slice can run over by one item.
+static const u32 kWorkSliceMs = 100;
 
 // ---------------------------------------------------------------------------
 // Input
@@ -467,8 +471,8 @@ class App
 {
 public:
     App(Screen& screen) : m_screen(screen), m_screenId(kScreenMenu), m_overlay(kOverlayNone), m_work(kWorkNone),
-        m_workShown(false), m_menuIndex(0), m_selected(0), m_scroll(0), m_folderIndexBuilt(false), m_keyRow(0),
-        m_keyColumn(0), m_resultIndex(0), m_resultScroll(0), m_driveIndex(0), m_profileIndex(0), m_profileScroll(0),
+        m_workShown(false), m_stopInstallAll(false), m_menuIndex(0), m_selected(0), m_scroll(0),
+        m_folderIndexBuilt(false), m_keyRow(0), m_keyColumn(0), m_resultIndex(0), m_resultScroll(0), m_driveIndex(0), m_profileIndex(0), m_profileScroll(0),
         m_repairSignedOut(false), m_optionIndex(0), m_toastUntil(0), m_quit(false), m_dirty(true) {}
 
 
@@ -494,8 +498,16 @@ public:
 
     void HandleInput(u16 pressed)
     {
-        if (!pressed || m_overlay == kOverlayWorking)
+        if (!pressed)
             return;
+        if (m_overlay == kOverlayWorking)
+        {
+            // Only "Unlock all" can stop, between items; BACK stops it too
+            // rather than quitting in the middle.
+            if (m_work == kWorkInstallAll && (pressed & (kButtonB | kButtonBack)))
+                m_stopInstallAll = true;
+            return;
+        }
         if (pressed & kButtonBack)
         {
             m_quit = true;
@@ -534,7 +546,7 @@ public:
             Install();
             break;
         case kWorkInstallAll:
-            InstallAll();
+            ContinueInstallAll();
             break;
         case kWorkIndexFolders:
             m_folderIndex = IndexItemFolders();
@@ -648,7 +660,10 @@ public:
             DrawKeyboard(c);
         else if (m_overlay == kOverlayWorking)
         {
-            DrawDialog(c, "Working...", std::vector<std::string>(1, m_workText), std::vector<std::string>(), -1);
+            std::vector<std::string> lines(1, m_workText);
+            if (!m_workHint.empty())
+                lines.push_back(m_workHint);
+            DrawDialog(c, "Working...", lines, std::vector<std::string>(), -1);
             m_workShown = true;
         }
 
@@ -661,6 +676,7 @@ private:
     {
         m_work = work;
         m_workText = text;
+        m_workHint.clear();
         m_workShown = false;
         m_overlay = kOverlayWorking;
     }
@@ -884,7 +900,10 @@ private:
         for (size_t i = 0; i < m_drives.size(); i++)
             if (m_drives[i].name == picked)
                 m_driveIndex = (int)i;
-        m_licensees = ItemLicensees();
+        // One scan for both the licensees and the signed-in offline profile
+        // below: each scan reads every profile in full.
+        std::vector<ProfileEntry> profiles = ScanProfiles();
+        m_licensees = ItemLicensees(profiles);
         xsdk_log_write("items: %d licensees", (int)m_licensees.size());
         m_screenId = kScreenItems;
         m_folder.clear();
@@ -897,7 +916,7 @@ private:
         // A signed-in offline profile can't wear the items yet: offer to
         // activate it, once per profile while the app runs.
         ProfileEntry offline;
-        if (FindSignedInOfflineProfile(&offline) &&
+        if (FindSignedInOfflineProfile(profiles, &offline) &&
             std::find(m_declinedActivations.begin(), m_declinedActivations.end(), offline.info.offlineXuid) ==
                 m_declinedActivations.end())
         {
@@ -1213,12 +1232,51 @@ private:
         ShowToast(UnlockedTitle(), name, icon);
     }
 
-    void InstallAll()
+    // "Unlock all" runs a slice per frame (ContinueInstallAll), so the progress
+    // shows and B can stop it between items.
+    void StartInstallAll()
     {
-        InstallAllResult result = InstallAllItems(m_folder, m_licensees, m_drives[m_driveIndex]);
+        m_installAll.Start(m_folder, m_licensees, m_drives[m_driveIndex]);
+        m_stopInstallAll = false;
+        StartWork(kWorkInstallAll, "Finding items...");
+        m_workHint = "Press B to stop";
+    }
+
+    void ContinueInstallAll()
+    {
+        u32 start = NowMs();
+        while (!m_installAll.Finished() && !m_stopInstallAll && NowMs() - start < kWorkSliceMs)
+            m_installAll.Step();
+        if (m_installAll.Finished() || m_stopInstallAll)
+        {
+            FinishInstallAll();
+            return;
+        }
+        // More to do: stays the pending work, with the progress shown.
+        char progress[96];
+        if (m_installAll.Listing())
+            snprintf(progress, sizeof progress, "Finding items... %d files", m_installAll.Files());
+        else
+            snprintf(progress, sizeof progress, "Unlocking %d / %d on %s", m_installAll.Done() + 1,
+                     m_installAll.Files(), m_drives[m_driveIndex].name.c_str());
+        m_workText = progress;
+        m_work = kWorkInstallAll;
+        m_overlay = kOverlayWorking;
+    }
+
+    void FinishInstallAll()
+    {
+        InstallAllResult result = m_installAll.Result();
+        bool stopped = !m_installAll.Finished();
+        bool listing = m_installAll.Listing();
+        int notDone = m_installAll.Files() - m_installAll.Done();
+        xsdk_log_write("unlock all: %s, %d unlocked, %d failed", stopped ? "stopped" : "done", result.installed,
+                       result.failed);
+        m_installAll = InstallAllJob();     // frees the file list
+        m_stopInstallAll = false;
         RescanFolder();
         char summary[96];
-        if (result.failed == 0)
+        if (!stopped && result.failed == 0)
         {
             snprintf(summary, sizeof summary, "%d item%s", result.installed, result.installed == 1 ? "" : "s");
             ShowToast(UnlockedTitle(), summary, std::vector<u32>());
@@ -1226,11 +1284,18 @@ private:
         }
         snprintf(summary, sizeof summary, "%d unlocked, %d failed.", result.installed, result.failed);
         std::vector<std::string> lines(1, summary);
+        if (stopped && listing)
+            lines.push_back("Stopped while finding the items.");
+        else if (stopped)
+        {
+            snprintf(summary, sizeof summary, "Stopped with %d file%s left.", notDone, notDone == 1 ? "" : "s");
+            lines.push_back(summary);
+        }
         for (size_t i = 0; i < result.errors.size(); i++)
             lines.push_back(result.errors[i]);
         if (result.failed > (int)result.errors.size())
             lines.push_back("...");
-        ShowMessage("Partly done", lines);
+        ShowMessage(stopped ? "Stopped" : "Partly done", lines);
     }
 
     // --- search
@@ -1707,8 +1772,7 @@ private:
         else if (m_overlay == kOverlayItemActions && SelectedItem())
             StartWork(kWorkInstall, "Unlocking " + SelectedItem()->name + " on " + m_drives[m_driveIndex].name);
         else if (m_overlay == kOverlayAddAllActions)
-            StartWork(kWorkInstallAll, "Unlocking all items on " + m_drives[m_driveIndex].name + "...");
-
+            StartInstallAll();
         else
             StartWork(kWorkActivate, "Activating " + m_profiles[m_profileIndex].info.gamertag);
     }
@@ -1718,7 +1782,10 @@ private:
     Overlay m_overlay;
     PendingWork m_work;
     std::string m_workText;
+    std::string m_workHint;                     // a second line under m_workText, if any
     bool m_workShown;
+    InstallAllJob m_installAll;                 // "Unlock all", while it runs
+    bool m_stopInstallAll;                      // B pressed while it runs
     int m_menuIndex;
     std::vector<u32> m_menuArt[kMenuCards];     // the cards' pictures, ARGB at card size
 
