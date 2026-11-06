@@ -6,6 +6,7 @@
 // `drives` are the ones items can be installed to (AvailableDrives).
 #pragma once
 
+#include "profiles.h"
 #include "storage.h"
 #include "../core/avatar_item.h"
 #include "../core/types.h"
@@ -43,9 +44,10 @@ struct ItemListing
 const char* ItemsFolder();
 
 // The XUIDs items are licensed to: the shared online XUID first, then the
-// online XUIDs of the Xbox Live profiles (from their files, and from the
-// system for the signed-in ones, whose files are held open).
-std::vector<u64> ItemLicensees();
+// online XUIDs of the Xbox Live profiles (from their files in `profiles`, a
+// ScanProfiles result, and from the system for the signed-in ones, whose files
+// are held open).
+std::vector<u64> ItemLicensees(const std::vector<ProfileEntry>& profiles);
 
 // Reads a folder below AvatarItems ("" for AvatarItems itself): the start of
 // each item's header only, so large folders open quickly. Files that aren't
@@ -80,5 +82,28 @@ struct InstallAllResult
     std::vector<std::string> errors;   // the first few, "name: reason"
 };
 
-// Installs every file in the folder and its subfolders to `drive`.
-InstallAllResult InstallAllItems(const std::string& relative, const std::vector<u64>& licensees, const Drive& drive);
+// Installs every item in a folder and its subfolders to `drive`, one step at a
+// time, so the app can show progress and stop between steps: first one folder
+// is listed per step, then one file is unlocked per step. Each file is written
+// completely within its step, so stopping between steps leaves no half-written
+// item. Progress goes to the log every few dozen files.
+class InstallAllJob
+{
+public:
+    InstallAllJob();
+    void Start(const std::string& relative, const std::vector<u64>& licensees, const Drive& drive);
+    void Step();
+    bool Finished() const { return m_folders.empty() && m_next >= m_files.size(); }
+    bool Listing() const { return !m_folders.empty(); }     // still finding the files
+    int Files() const { return (int)m_files.size(); }       // found so far
+    int Done() const { return (int)m_next; }                // files looked at
+    const InstallAllResult& Result() const { return m_result; }
+
+private:
+    std::vector<u64> m_licensees;
+    Drive m_drive;
+    std::vector<std::string> m_folders;     // still to list; the next one last
+    std::vector<std::string> m_files;       // below AvatarItems, in the order they're unlocked
+    size_t m_next;
+    InstallAllResult m_result;
+};

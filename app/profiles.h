@@ -31,9 +31,10 @@ int FirstSignedInUser(std::string* gamertag);
 // Asks the system to open the avatar editor for `user`, the way the dashboard
 // does; the system then ends this app. Returns the system's answer (logged).
 u32 LaunchAvatarEditor(int user);
-// The first signed-in offline profile that isn't activated yet; false if there
-// is none, or its file isn't on the drives (then it can't be activated).
-bool FindSignedInOfflineProfile(ProfileEntry* out);
+// The first signed-in offline profile in `profiles` (a ScanProfiles result) that
+// isn't activated yet; false if there is none, or its file isn't on the drives
+// (then it can't be activated).
+bool FindSignedInOfflineProfile(const std::vector<ProfileEntry>& profiles, ProfileEntry* out);
 
 // Signs a signed-in profile out and waits until the system lets go of its
 // file, so ActivateProfile can rewrite it.

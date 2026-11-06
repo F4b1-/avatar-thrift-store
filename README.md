@@ -34,7 +34,8 @@ avatar items are included; bring your own (easy to find online).
    activate it for you. If another tool left the profile's hashes out of sync, the app offers
    to repair them first, after making its backup.
 5. **Unlock Items**: unlock single items (or all of them with X), then **Avatar Editor** to
-   put them on.
+   put them on. Unlocking a large folder takes a while: the app shows how far it is, and
+   B stops it after the current item.
 
 Controls: D-pad/left stick, A open/unlock, X unlock all items in the folder, B back, Y search,
 LB/RB page, BACK quit.
@@ -193,7 +194,7 @@ On Windows:
 git submodule update --init                   # after cloning (or clone with --recursive)
 wsl -d Debian bash third_party/xsdk/tools/toolchain/build.sh   # once; takes a while
 .\build_xbox.ps1                              # -> build\xbox\AvatarThriftStore.xex
-.\tools\package_release.ps1 -Version 0.5.0    # -> dist\AvatarThriftStore-v0.5.0.zip
+.\tools\package_release.ps1 -Version 0.5.1    # -> dist\AvatarThriftStore-v0.5.1.zip
 ```
 
 On Linux:
