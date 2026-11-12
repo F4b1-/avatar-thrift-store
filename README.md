@@ -56,7 +56,7 @@ Pull both triggers for a screenshot (PNG in `AvatarThriftStore\Screenshots`).
 In the avatar editor, items only show for an avatar of their gender. The app lists them all,
 with an **M** or **F** badge on each tile (an item's male version comes first).
 
-## How it works (for those interested)
+## How it works
 
 - **One shared XUID for offline profiles.** Activating an offline profile
   gives it the online XUID **`00090000AAAAAAAA`**. Every activated profile
