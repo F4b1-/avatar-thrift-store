@@ -8,7 +8,7 @@
       <img src="https://img.shields.io/github/v/release/F4b1-/avatar-thrift-store?style=flat-square" alt="Release" />
     </a>
     <a href="https://github.com/F4b1-/avatar-thrift-store/blob/main/LICENSE">
-      <img src="https://img.shields.io/github/license/F4b1-/avatar-thrift-store?style=flat-square" alt="License" />
+      <img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="License: MIT" />
     </a>
   </p>
 </div>
