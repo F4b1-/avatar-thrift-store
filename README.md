@@ -1,4 +1,17 @@
-# Avatar Thrift Store
+<div align="center">
+  <h1>Avatar Thrift Store</h1>
+  <p>
+    <a href="https://github.com/F4b1-/avatar-thrift-store/actions/workflows/ci.yml">
+      <img src="https://img.shields.io/github/actions/workflow/status/F4b1-/avatar-thrift-store/ci.yml?branch=main&style=flat-square&label=CI" alt="CI" />
+    </a>
+    <a href="https://github.com/F4b1-/avatar-thrift-store/releases">
+      <img src="https://img.shields.io/github/v/release/F4b1-/avatar-thrift-store?style=flat-square" alt="Release" />
+    </a>
+    <a href="https://github.com/F4b1-/avatar-thrift-store/blob/main/LICENSE">
+      <img src="https://img.shields.io/github/license/F4b1-/avatar-thrift-store?style=flat-square" alt="License" />
+    </a>
+  </p>
+</div>
 
 Avatar Thrift Store is a homebrew application for modded Xbox 360 consoles that unlocks avatar item
 packages for every profile on the console, including **offline profiles**,
