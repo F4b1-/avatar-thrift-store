@@ -54,7 +54,7 @@ Controls: D-pad/left stick, A open/unlock, X unlock all items in the folder, B b
 LB/RB page, BACK quit.
 Pull both triggers for a screenshot (PNG in `AvatarThriftStore\Screenshots`).
 In the avatar editor, items only show for an avatar of their gender. The app lists them all,
-with an **M** or **F** badge on each tile (an item's male version comes first).
+with an **M** or **F** badge on each tile.
 
 ## How it works
 
@@ -80,9 +80,7 @@ with an **M** or **F** badge on each tile (an item's male version comes first).
   `AAAAAAAA`. The original file name isn't kept.
 
 So an item unlocked once works for every activated offline profile at once,
-and for each Xbox Live profile the app knew about when it was unlocked. For
-an Xbox Live profile added later, the item shows as not unlocked again;
-unlocking it once more adds that profile (keep the item files for this).
+and for each Xbox Live profile the app knew about when it was unlocked.
 
 ## Code layout
 
